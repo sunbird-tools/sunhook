@@ -131,6 +131,8 @@ static jstring sh_jni_get_arch(JNIEnv *env, jobject thiz) {
   char *arch = "arm";
 #elif defined(__aarch64__)
   char *arch = "arm64";
+#elif defined(__x86_64__)
+  char *arch = "x86_64";
 #else
   char *arch = "unsupported";
 #endif

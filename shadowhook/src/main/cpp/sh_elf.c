@@ -51,6 +51,9 @@
 #elif defined(__aarch64__)
 #define SH_ELF_UNIT_SIZE      4
 #define SH_ELF_MIN_ALLOC_SIZE 8
+#elif defined(__x86_64__)
+#define SH_ELF_UNIT_SIZE      8
+#define SH_ELF_MIN_ALLOC_SIZE 16
 #endif
 
 extern __attribute((weak)) unsigned long int getauxval(unsigned long int);
@@ -87,7 +90,7 @@ static sh_elf_useless_symbol_t sh_elf_useless_linker[] = {
 // __linker_init_post_relocation
 #if defined(__arm__)
     {"__dl__ZL29__linker_init_post_relocationR19KernelArgumentBlockj", 21, 26, false, true},
-#elif defined(__aarch64__)
+#elif defined(__aarch64__) || defined(__x86_64__)
     {"__dl__ZL29__linker_init_post_relocationR19KernelArgumentBlocky", 21, 26, false, true},
 #endif
     {"__dl__ZL29__linker_init_post_relocationR19KernelArgumentBlock", 27, 28, false, true},
@@ -115,7 +118,7 @@ static sh_elf_useless_symbol_t sh_elf_useless_libandroid_runtime[] = {
 static sh_elf_useless_t sh_elf_useless[] = {
 #if defined(__arm__)
     USELESS_ITEM(linker, sh_elf_useless_linker),
-#elif defined(__aarch64__)
+#elif defined(__aarch64__) || defined(__x86_64__)
     USELESS_ITEM(linker64, sh_elf_useless_linker),
 #endif
     USELESS_ITEM(libart.so, sh_elf_useless_libart),

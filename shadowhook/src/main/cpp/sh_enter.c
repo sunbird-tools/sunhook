@@ -31,12 +31,6 @@
 #define SH_ENTER_ANON_PAGE_NAME "shadowhook-enter"
 #define SH_ENTER_DELAY_SEC      15
 
-#ifdef SH_CONFIG_TRY_HOOK_WITHOUT_ISLAND
-#define SH_ENTER_SZ 256
-#else
-#define SH_ENTER_SZ 64
-#endif
-
 static sh_trampo_mgr_t sh_enter_trampo_mgr;
 
 void sh_enter_init(void) {
@@ -45,6 +39,10 @@ void sh_enter_init(void) {
 
 uintptr_t sh_enter_alloc(void) {
   return sh_trampo_alloc(&sh_enter_trampo_mgr);
+}
+
+uintptr_t sh_enter_alloc_between(uintptr_t range_low, uintptr_t range_high) {
+  return sh_trampo_alloc_between(&sh_enter_trampo_mgr, range_low, range_high);
 }
 
 void sh_enter_free(uintptr_t enter) {

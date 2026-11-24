@@ -238,6 +238,23 @@ int sh_util_write_inst(uintptr_t target_addr, void *inst, size_t inst_len) {
     return SHADOWHOOK_ERRNO_MPROT;
 
   SH_SIG_TRY(SIGSEGV, SIGBUS) {
+#if defined(__x86_64__)
+    uintptr_t qword = target_addr & ~(uintptr_t)7;
+    if (target_addr + inst_len <= qword + 8) {
+      uint64_t val64 = *(uint64_t *)qword;
+      memcpy((uint8_t *)&val64 + (target_addr - qword), inst, inst_len);
+      __atomic_store_n((uint64_t *)qword, val64, __ATOMIC_SEQ_CST);
+    } else {
+      // Park threads that reach target_addr on "jmp ." while the tail is written. The tail is
+      // copied byte by byte because target_addr may be memcpy itself.
+      uint16_t head;
+      memcpy(&head, inst, sizeof(head));
+      __atomic_store_n((uint16_t *)target_addr, (uint16_t)0xFEEB, __ATOMIC_SEQ_CST);
+      for (size_t i = 2; i < inst_len; i++)
+        __atomic_store_n((uint8_t *)target_addr + i, ((uint8_t *)inst)[i], __ATOMIC_RELAXED);
+      __atomic_store_n((uint16_t *)target_addr, head, __ATOMIC_SEQ_CST);
+    }
+#else
     if ((4 == inst_len) && (0 == target_addr % 4)) {
       uint32_t val32;
       memcpy(&val32, inst, sizeof(val32));
@@ -269,6 +286,7 @@ int sh_util_write_inst(uintptr_t target_addr, void *inst, size_t inst_len) {
     else {
       memcpy((void *)target_addr, inst, inst_len);
     }
+#endif
 
     sh_util_clear_cache(target_addr, inst_len);
   }

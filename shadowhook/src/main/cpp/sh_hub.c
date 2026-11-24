@@ -175,6 +175,63 @@ __attribute__((naked)) static void sh_hub_trampo_template(void) {
       ".quad 0;"
       ".L_hub_ptr:"
       ".quad 0;");
+#elif defined(__x86_64__)
+  __asm__(
+      // Save parameter registers, RAX (varargs vector count), R10. 0xc8 realigns rsp for the call.
+      "subq    $0xc8, %rsp                \n"
+      "movdqu  %xmm0, 0x00(%rsp)          \n"
+      "movdqu  %xmm1, 0x10(%rsp)          \n"
+      "movdqu  %xmm2, 0x20(%rsp)          \n"
+      "movdqu  %xmm3, 0x30(%rsp)          \n"
+      "movdqu  %xmm4, 0x40(%rsp)          \n"
+      "movdqu  %xmm5, 0x50(%rsp)          \n"
+      "movdqu  %xmm6, 0x60(%rsp)          \n"
+      "movdqu  %xmm7, 0x70(%rsp)          \n"
+      "movq    %rdi, 0x80(%rsp)           \n"
+      "movq    %rsi, 0x88(%rsp)           \n"
+      "movq    %rdx, 0x90(%rsp)           \n"
+      "movq    %rcx, 0x98(%rsp)           \n"
+      "movq    %r8, 0xa0(%rsp)            \n"
+      "movq    %r9, 0xa8(%rsp)            \n"
+      "movq    %rax, 0xb0(%rsp)           \n"
+      "movq    %r10, 0xb8(%rsp)           \n"
+
+      // Call sh_hub_push_stack()
+      "movq    .L_hub_ptr(%rip), %rdi     \n"
+      "movq    0xc8(%rsp), %rsi           \n"
+      "callq   *.L_push_stack(%rip)       \n"
+
+      // Save the hook function's address to R11
+      "movq    %rax, %r11                 \n"
+
+      // Restore parameter registers, RAX, R10
+      "movq    0xb8(%rsp), %r10           \n"
+      "movq    0xb0(%rsp), %rax           \n"
+      "movq    0xa8(%rsp), %r9            \n"
+      "movq    0xa0(%rsp), %r8            \n"
+      "movq    0x98(%rsp), %rcx           \n"
+      "movq    0x90(%rsp), %rdx           \n"
+      "movq    0x88(%rsp), %rsi           \n"
+      "movq    0x80(%rsp), %rdi           \n"
+      "movdqu  0x70(%rsp), %xmm7          \n"
+      "movdqu  0x60(%rsp), %xmm6          \n"
+      "movdqu  0x50(%rsp), %xmm5          \n"
+      "movdqu  0x40(%rsp), %xmm4          \n"
+      "movdqu  0x30(%rsp), %xmm3          \n"
+      "movdqu  0x20(%rsp), %xmm2          \n"
+      "movdqu  0x10(%rsp), %xmm1          \n"
+      "movdqu  0x00(%rsp), %xmm0          \n"
+      "addq    $0xc8, %rsp                \n"
+
+      // Call hook function
+      "jmpq    *%r11                      \n"
+
+      "sh_hub_trampo_template_data:"
+      ".global sh_hub_trampo_template_data;"
+      ".L_push_stack:"
+      ".quad 0;"
+      ".L_hub_ptr:"
+      ".quad 0;");
 #endif
 }
 
@@ -294,7 +351,7 @@ static int sh_hub_init(void) {
 #if defined(__thumb__)
   sh_hub_trampo_code_start = SH_UTIL_CLEAR_BIT0(sh_hub_trampo_code_start);
 #endif
-#elif defined(__aarch64__)
+#elif defined(__aarch64__) || defined(__x86_64__)
   sh_hub_trampo_code_start = (uintptr_t)&sh_hub_trampo_template;
   data_start = (uintptr_t)(&sh_hub_trampo_template_data);
 #endif

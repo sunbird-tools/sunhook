@@ -24,7 +24,16 @@
 #pragma once
 #include <stdint.h>
 
+#include "sh_config.h"
+
+#if defined(SH_CONFIG_TRY_HOOK_WITHOUT_ISLAND) || defined(__x86_64__)
+#define SH_ENTER_SZ 256
+#else
+#define SH_ENTER_SZ 64
+#endif
+
 void sh_enter_init(void);
 
 uintptr_t sh_enter_alloc(void);
+uintptr_t sh_enter_alloc_between(uintptr_t range_low, uintptr_t range_high);
 void sh_enter_free(uintptr_t enter);

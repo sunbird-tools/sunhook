@@ -49,7 +49,7 @@ typedef struct {
 static sh_xdl_handle_info_t sh_xdl_handle_info_cache[] = {
 #if defined(__arm__)
     INIT_ITEM(linker),
-#elif defined(__aarch64__)
+#elif defined(__aarch64__) || defined(__x86_64__)
     INIT_ITEM(linker64),
 #endif
     INIT_ITEM(libc.so),

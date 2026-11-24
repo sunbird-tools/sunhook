@@ -44,6 +44,8 @@
 #define SH_ISLAND_SIZE_MAX 8
 #elif defined(__aarch64__)
 #define SH_ISLAND_SIZE_MAX 20
+#elif defined(__x86_64__)
+#define SH_ISLAND_SIZE_MAX 16
 #endif
 
 static sh_trampo_mgr_t sh_island_trampo_mgr;

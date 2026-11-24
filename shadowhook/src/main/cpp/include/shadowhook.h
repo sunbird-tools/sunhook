@@ -146,7 +146,7 @@ void *shadowhook_hook_sym_name_callback_2(const char *lib_name, const char *sym_
 
 // intercept and unintercept
 typedef union {
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__x86_64__)
   __uint128_t q;
 #endif
   uint64_t d[2];
@@ -173,6 +173,15 @@ typedef struct {
   // (1) NEON, VFPv4, VFPv3-D32: q0-q15(d0-d31)
   // (2) VFPv3-D16: q0-q7(d0-d15)
   shadowhook_vreg_t vregs[16];
+} shadowhook_cpu_context_t;
+#elif defined(__x86_64__)
+typedef struct {
+  uint64_t regs[16];  // rax, rcx, rdx, rbx, rsp, rbp, rsi, rdi, r8-r15 (rsp is read-only)
+  uint64_t rip;
+  uint64_t rflags;
+  shadowhook_vreg_t vregs[16];  // xmm0-xmm15
+  uint64_t mxcsr;
+  uint64_t reserved;
 } shadowhook_cpu_context_t;
 #endif
 

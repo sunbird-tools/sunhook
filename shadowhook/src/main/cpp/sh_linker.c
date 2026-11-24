@@ -46,6 +46,11 @@
 #define SH_LINKER_ABI_STR            "armeabi-v7a"
 #define SH_LINKER_SIZEOF_DLINFO      16
 #define SH_LINKER_HOOK_WITH_DL_MUTEX 1
+#elif defined(__x86_64__)
+#define SH_LINKER_BASENAME           "linker64"
+#define SH_LINKER_ABI_STR            "x86_64"
+#define SH_LINKER_SIZEOF_DLINFO      32
+#define SH_LINKER_HOOK_WITH_DL_MUTEX 0
 #else
 #define SH_LINKER_BASENAME           "linker64"
 #define SH_LINKER_ABI_STR            "arm64-v8a"
@@ -140,7 +145,10 @@ static void *sh_linker_get_base_addr(xdl_info_t *dlinfo) {
 static bool sh_linker_check_arch(xdl_info_t *dlinfo) {
   ElfW(Ehdr) *ehdr = (ElfW(Ehdr) *)sh_linker_get_base_addr(dlinfo);
 
-#if defined(__LP64__)
+#if defined(__x86_64__)
+#define SH_LINKER_ELF_CLASS   ELFCLASS64
+#define SH_LINKER_ELF_MACHINE EM_X86_64
+#elif defined(__LP64__)
 #define SH_LINKER_ELF_CLASS   ELFCLASS64
 #define SH_LINKER_ELF_MACHINE EM_AARCH64
 #else
