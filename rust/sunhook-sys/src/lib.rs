@@ -149,6 +149,20 @@ pub struct shadowhook_cpu_context_t {
    pub reserved: u64,
 }
 
+#[cfg(target_arch = "x86")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct shadowhook_cpu_context_t {
+   /// eax, ecx, edx, ebx, esp, ebp, esi, edi. Writes to esp are ignored.
+   pub regs:     [u32; 8],
+   pub eip:      u32,
+   pub eflags:   u32,
+   pub mxcsr:    u32,
+   pub reserved: u32,
+   /// xmm0 to xmm7.
+   pub vregs:    [shadowhook_vreg_t; 8],
+}
+
 pub type shadowhook_hooked_t = Option<
    unsafe extern "C" fn(
       error_number: c_int,

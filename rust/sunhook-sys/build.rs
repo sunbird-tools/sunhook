@@ -40,8 +40,8 @@ fn main() {
    let arch = match target_arch.as_str() {
       "aarch64" => "arm64",
       "arm" => "arm",
-      "x86_64" => "x86_64",
-      other => panic!("sunhook only supports arm, aarch64 and x86_64, not {other}"),
+      "x86" | "x86_64" => "x86",
+      other => panic!("sunhook only supports arm, aarch64, x86 and x86_64, not {other}"),
    };
 
    let mut build = cc::Build::new();
@@ -76,7 +76,7 @@ fn main() {
    println!("cargo:include={}", src.join("include").display());
    link_compiler_rt();
 
-   build_nothing(&src, arch);
+   build_nothing(&src);
 }
 
 /// shadowhook calls `__clear_cache`, which Rust's `compiler_builtins` does not
@@ -87,7 +87,11 @@ fn link_compiler_rt() {
    let output = query
       .output()
       .unwrap_or_else(|err| panic!("running {query:?}: {err}"));
-   assert!(output.status.success(), "{query:?} failed with {}", output.status);
+   assert!(
+      output.status.success(),
+      "{query:?} failed with {}",
+      output.status
+   );
 
    let archive = PathBuf::from(String::from_utf8(output.stdout).unwrap().trim());
    let name = archive
@@ -95,7 +99,10 @@ fn link_compiler_rt() {
       .and_then(|stem| stem.to_str())
       .and_then(|stem| stem.strip_prefix("lib"))
       .unwrap_or_else(|| panic!("unexpected compiler-rt path {}", archive.display()));
-   println!("cargo:rustc-link-search=native={}", archive.parent().unwrap().display());
+   println!(
+      "cargo:rustc-link-search=native={}",
+      archive.parent().unwrap().display()
+   );
    println!("cargo:rustc-link-lib=static={name}");
 }
 
@@ -109,7 +116,7 @@ fn run(mut command: Command) {
 /// `shadowhook_init()` dlopen()s this library by basename to locate soinfo
 /// fields, so it has to ship in the APK next to the library that embeds
 /// sunhook.
-fn build_nothing(src: &Path, arch: &str) {
+fn build_nothing(src: &Path) {
    let out_dir = PathBuf::from(env::var_os("OUT_DIR").unwrap());
    let nothing = out_dir.join(NOTHING_NAME);
    let mut link = cc::Build::new().get_compiler().to_command();
@@ -128,7 +135,7 @@ fn build_nothing(src: &Path, arch: &str) {
       "-Wl,--build-id=none",
    ]);
 
-   if arch != "arm" {
+   if env::var("CARGO_CFG_TARGET_POINTER_WIDTH").unwrap() == "64" {
       link.arg("-Wl,-z,max-page-size=16384");
    }
 

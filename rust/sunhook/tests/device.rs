@@ -39,6 +39,7 @@ use sunhook::{
    },
    intercept::{
       self,
+      CpuContext,
       Fpsimd,
    },
    linker::{
@@ -54,8 +55,21 @@ use sunhook::{
 
 type Unary = extern "C" fn(i32) -> i32;
 
-/// rdi is `regs[7]` on x86_64.
-const ARG0: usize = if cfg!(target_arch = "x86_64") { 7 } else { 0 };
+#[cfg(target_pointer_width = "32")]
+type Reg = u32;
+#[cfg(target_pointer_width = "64")]
+type Reg = u64;
+
+/// x86 passes it on the stack above the return address.
+#[cfg(target_arch = "x86")]
+fn arg0(ctx: &mut CpuContext) -> &mut Reg {
+   unsafe { &mut *((ctx.regs[4] as usize + 4) as *mut Reg) }
+}
+
+#[cfg(not(target_arch = "x86"))]
+const fn arg0(ctx: &mut CpuContext) -> &mut Reg {
+   &mut ctx.regs[if cfg!(target_arch = "x86_64") { 7 } else { 0 }]
+}
 
 fn init() {
    static INIT: Once = Once::new();
@@ -302,8 +316,8 @@ fn intercept_rewrites_argument_register() {
                clippy::useless_conversion,
                reason = "regs is u32 on arm and u64 on aarch64"
             )]
-            seen_in.store(u64::from(ctx.regs[ARG0]), Ordering::Relaxed);
-            ctx.regs[ARG0] = 2;
+            seen_in.store(u64::from(*arg0(ctx)), Ordering::Relaxed);
+            *arg0(ctx) = 2;
          },
          Fpsimd::Off,
       )
@@ -440,9 +454,11 @@ fn dl_callbacks_see_load_and_unload() {
    ]);
 }
 
-// Five adds of 1, 2, 4, 8 and 16 to the first argument, each a 4 byte
-// instruction, so the second one sits at a known offset in the middle of the
-// function.
+// Five adds of 1, 2, 4, 8 and 16 to the first argument, each an
+// INSTR_LEN byte instruction, so the second one sits at a known offset in the
+// middle of the function.
+const INSTR_LEN: usize = if cfg!(target_arch = "x86") { 5 } else { 4 };
+
 #[cfg(target_arch = "aarch64")]
 std::arch::global_asm!(
    ".text",
@@ -495,6 +511,23 @@ std::arch::global_asm!(
    ".size sunhook_instr_target, . - sunhook_instr_target",
 );
 
+#[cfg(target_arch = "x86")]
+std::arch::global_asm!(
+   ".text",
+   ".globl sunhook_instr_target",
+   ".type sunhook_instr_target, @function",
+   ".p2align 4",
+   "sunhook_instr_target:",
+   "add dword ptr [esp + 4], 1",
+   "add dword ptr [esp + 4], 2",
+   "add dword ptr [esp + 4], 4",
+   "add dword ptr [esp + 4], 8",
+   "add dword ptr [esp + 4], 16",
+   "mov eax, [esp + 4]",
+   "ret",
+   ".size sunhook_instr_target, . - sunhook_instr_target",
+);
+
 unsafe extern "C" {
    fn sunhook_instr_target(x: i32) -> i32;
 }
@@ -503,14 +536,14 @@ unsafe extern "C" {
 fn intercept_instr_mid_function() {
    init();
    let entry = sunhook_instr_target as unsafe extern "C" fn(i32) -> i32;
-   let second = NonNull::new(entry.addr().wrapping_byte_add(4)).unwrap();
+   let second = NonNull::new(entry.addr().wrapping_byte_add(INSTR_LEN)).unwrap();
    let intercept = unsafe {
       intercept::intercept_instr(
          second,
          None,
          |ctx| {
-            assert_eq!(ctx.regs[ARG0], 1);
-            ctx.regs[ARG0] = 100;
+            assert_eq!(*arg0(ctx), 1);
+            *arg0(ctx) = 100;
          },
          Fpsimd::Off,
       )
