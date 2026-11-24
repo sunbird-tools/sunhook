@@ -1,0 +1,14 @@
+[package]
+name         = "sunhook"
+description  = "Safe bindings to sunhook, a fork of the shadowhook Android inline hook library"
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+version.workspace      = true
+
+[dependencies]
+libc        = { workspace = true }
+sunhook-sys = { workspace = true }
+
+[lints]
+workspace = true

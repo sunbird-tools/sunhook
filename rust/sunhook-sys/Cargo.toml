@@ -1,0 +1,18 @@
+[package]
+name         = "sunhook-sys"
+description  = "Raw FFI bindings to sunhook, a fork of the shadowhook Android inline hook library"
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+version.workspace      = true
+links        = "shadowhook"
+build        = "build.rs"
+
+[dependencies]
+libc = { workspace = true }
+
+[build-dependencies]
+cc = { workspace = true }
+
+[lints]
+workspace = true
