@@ -34,6 +34,8 @@
 #include "queue.h"
 #include "sh_util.h"
 
+#define SH_TRAMPO_HINTS_MAX 32
+
 #define SH_TRAMPO_ALIGN 4
 
 void sh_trampo_init_mgr(sh_trampo_mgr_t *mgr, const char *anon_page_name, size_t trampo_size,
@@ -95,16 +97,25 @@ uintptr_t sh_trampo_alloc_between(sh_trampo_mgr_t *mgr, uintptr_t range_low, uin
   }
 
   // alloc a new memory page
-  void *hint = between ? (void *)(sh_util_page_end(range_low)) : NULL;
-  new_ptr = (uintptr_t)(mmap(hint, trampo_page_size, PROT_READ | PROT_WRITE | PROT_EXEC,
-                             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+  // The kernel ignores an occupied hint and maps anywhere, so try hints across the range.
+  for (uintptr_t i = 0; i < SH_TRAMPO_HINTS_MAX; i++) {
+    void *hint =
+        between ? (void *)(sh_util_page_end(range_low + (range_high - range_low) / SH_TRAMPO_HINTS_MAX * i))
+                : NULL;
+    new_ptr = (uintptr_t)(mmap(hint, trampo_page_size, PROT_READ | PROT_WRITE | PROT_EXEC,
+                               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+    if ((uintptr_t)MAP_FAILED == new_ptr) goto err;
+
+    // check page's range
+    uintptr_t trampo_first = new_ptr;
+    uintptr_t trampo_last = new_ptr + (trampo_count - 1) * mgr->trampo_size;
+    if (!between || (range_low <= trampo_last && trampo_first <= range_high)) break;
+
+    munmap((void *)new_ptr, trampo_page_size);
+    new_ptr = (uintptr_t)MAP_FAILED;
+  }
   if ((uintptr_t)MAP_FAILED == new_ptr) goto err;
   new_ptr_prctl = new_ptr;
-
-  // check page's range
-  uintptr_t trampo_first = new_ptr;
-  uintptr_t trampo_last = new_ptr + (trampo_count - 1) * mgr->trampo_size;
-  if (between && ((trampo_last < range_low) || (range_high < trampo_first))) goto err;
 
   // create a new trampo-page info
   if (NULL == (page = calloc(1, sizeof(sh_trampo_page_t) + trampo_count * sizeof(uint32_t)))) goto err;
