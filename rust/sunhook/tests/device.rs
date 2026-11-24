@@ -54,6 +54,9 @@ use sunhook::{
 
 type Unary = extern "C" fn(i32) -> i32;
 
+/// rdi is `regs[7]` on x86_64.
+const ARG0: usize = if cfg!(target_arch = "x86_64") { 7 } else { 0 };
+
 fn init() {
    static INIT: Once = Once::new();
    INIT.call_once(|| {
@@ -299,8 +302,8 @@ fn intercept_rewrites_argument_register() {
                clippy::useless_conversion,
                reason = "regs is u32 on arm and u64 on aarch64"
             )]
-            seen_in.store(u64::from(ctx.regs[0]), Ordering::Relaxed);
-            ctx.regs[0] = 2;
+            seen_in.store(u64::from(ctx.regs[ARG0]), Ordering::Relaxed);
+            ctx.regs[ARG0] = 2;
          },
          Fpsimd::Off,
       )
@@ -475,6 +478,23 @@ std::arch::global_asm!(
    ".size sunhook_instr_target, . - sunhook_instr_target",
 );
 
+#[cfg(target_arch = "x86_64")]
+std::arch::global_asm!(
+   ".text",
+   ".globl sunhook_instr_target",
+   ".type sunhook_instr_target, @function",
+   ".p2align 4",
+   "sunhook_instr_target:",
+   "add rdi, 1",
+   "add rdi, 2",
+   "add rdi, 4",
+   "add rdi, 8",
+   "add rdi, 16",
+   "mov eax, edi",
+   "ret",
+   ".size sunhook_instr_target, . - sunhook_instr_target",
+);
+
 unsafe extern "C" {
    fn sunhook_instr_target(x: i32) -> i32;
 }
@@ -489,8 +509,8 @@ fn intercept_instr_mid_function() {
          second,
          None,
          |ctx| {
-            assert_eq!(ctx.regs[0], 1);
-            ctx.regs[0] = 100;
+            assert_eq!(ctx.regs[ARG0], 1);
+            ctx.regs[ARG0] = 100;
          },
          Fpsimd::Off,
       )

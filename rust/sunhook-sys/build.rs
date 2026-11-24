@@ -40,7 +40,8 @@ fn main() {
    let arch = match target_arch.as_str() {
       "aarch64" => "arm64",
       "arm" => "arm",
-      other => panic!("sunhook only supports arm and aarch64, not {other}"),
+      "x86_64" => "x86_64",
+      other => panic!("sunhook only supports arm, aarch64 and x86_64, not {other}"),
    };
 
    let mut build = cc::Build::new();
@@ -127,7 +128,7 @@ fn build_nothing(src: &Path, arch: &str) {
       "-Wl,--build-id=none",
    ]);
 
-   if arch == "arm64" {
+   if arch != "arm" {
       link.arg("-Wl,-z,max-page-size=16384");
    }
 

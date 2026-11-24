@@ -98,7 +98,7 @@ pub const SHADOWHOOK_RECORD_ITEM_TRACE: u32 = 1 << 11;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub union shadowhook_vreg_t {
-   #[cfg(target_arch = "aarch64")]
+   #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
    pub q: u128,
    pub d: [u64; 2],
    pub s: [u32; 4],
@@ -132,6 +132,21 @@ pub struct shadowhook_cpu_context_t {
    /// q0 to q15 on NEON, `VFPv4` and `VFPv3-D32`. Only q0 to q7 are valid on
    /// `VFPv3-D16`.
    pub vregs: [shadowhook_vreg_t; 16],
+}
+
+#[cfg(target_arch = "x86_64")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct shadowhook_cpu_context_t {
+   /// rax, rcx, rdx, rbx, rsp, rbp, rsi, rdi, r8 to r15. Writes to rsp are
+   /// ignored.
+   pub regs:     [u64; 16],
+   pub rip:      u64,
+   pub rflags:   u64,
+   /// xmm0 to xmm15.
+   pub vregs:    [shadowhook_vreg_t; 16],
+   pub mxcsr:    u64,
+   pub reserved: u64,
 }
 
 pub type shadowhook_hooked_t = Option<

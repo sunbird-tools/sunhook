@@ -42,6 +42,8 @@ pub type CpuContext = shadowhook_cpu_context_t;
 pub type VReg = shadowhook_vreg_t;
 
 /// Which floating point and SIMD registers [`CpuContext::vregs`] carries.
+///
+/// On x86_64 every variant behaves like [`Fpsimd::ReadWrite`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Fpsimd {
    /// `vregs` is neither filled nor written back, the cheapest option.
