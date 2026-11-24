@@ -289,16 +289,28 @@ static int sh_inst_rewrite_without_island(sh_inst_t *self, uintptr_t target_addr
     resume_addr = target_addr + self->backup_len;
   }
 
-  if (addr_info->is_sym_addr) {
+  // Function-address hooks carry no symbol size, so the jump could spill into the next function.
+  sh_addr_info_t sym_info;
+  sh_addr_info_t *sym = addr_info;
+  if (!addr_info->is_sym_addr) {
+    memset(&sym_info, 0, sizeof(sym_info));
+    int r = sh_linker_get_addr_info_by_addr(&sym_info, (void *)target_addr, true, addr_info->is_proc_start,
+                                            false);
+    sh_linker_free_addr_info(&sym_info);
+    uintptr_t start = (uintptr_t)sym_info.dli_saddr;
+    if (0 == r && start <= target_addr && target_addr < start + sym_info.dli_ssize) sym = &sym_info;
+  }
+
+  if (sym->is_sym_addr) {
     size_t resume_len = 0;
     if (!addr_info->is_proc_start) {
-      if (NULL != addr_info->dli_saddr && (uintptr_t)addr_info->dli_saddr <= target_addr &&
-          target_addr < (uintptr_t)addr_info->dli_saddr + addr_info->dli_ssize) {
-        resume_len = addr_info->dli_ssize - (target_addr - (uintptr_t)addr_info->dli_saddr);
+      if (NULL != sym->dli_saddr && (uintptr_t)sym->dli_saddr <= target_addr &&
+          target_addr < (uintptr_t)sym->dli_saddr + sym->dli_ssize) {
+        resume_len = sym->dli_ssize - (target_addr - (uintptr_t)sym->dli_saddr);
       }
     } else {
-      if (NULL != addr_info->dli_saddr) {
-        resume_len = addr_info->dli_ssize;
+      if (NULL != sym->dli_saddr) {
+        resume_len = sym->dli_ssize;
       }
     }
     if (resume_len < self->backup_len) return SHADOWHOOK_ERRNO_HOOK_SYMSZ;
