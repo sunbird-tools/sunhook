@@ -67,6 +67,7 @@ typedef struct {
   sh_hub_proxy_list_t proxies;
   uintptr_t orig_addr;
   void *return_address;
+  void *entry_func;
   uintptr_t flags;
 } sh_hub_frame_t;
 
@@ -365,6 +366,7 @@ static void *sh_hub_push_stack(sh_hub_t *self, void *return_address) {
         SLIST_FIRST(&frame->proxies) = proxies_head;
         frame->orig_addr = hub_orig_addr;
         frame->return_address = return_address;
+        frame->entry_func = proxy->func;
         frame->flags = SH_HUB_FRAME_FLAG_NONE;
 
         // return the first enabled proxy's function
@@ -388,6 +390,17 @@ void sh_hub_pop_stack(void *return_address) {
 
   // only the first proxy will actually execute pop-stack()
   if (__predict_true(frame->return_address == return_address)) {
+    stack->frames_cnt--;
+    SH_LOG_DEBUG("hub: frames_cnt-- = %zu", stack->frames_cnt);
+  }
+}
+
+void sh_hub_pop_stack_by_func(void *func) {
+  sh_hub_stack_t *stack = (sh_hub_stack_t *)sh_safe_pthread_getspecific(sh_hub_stack_tls_key);
+  if (__predict_false(0 == stack->frames_cnt)) return;
+  sh_hub_frame_t *frame = &stack->frames[stack->frames_cnt - 1];
+
+  if (__predict_true(frame->entry_func == func)) {
     stack->frames_cnt--;
     SH_LOG_DEBUG("hub: frames_cnt-- = %zu", stack->frames_cnt);
   }
@@ -541,6 +554,29 @@ void sh_hub_disallow_reentrant(void *return_address) {
   if (NULL != frame) {
     frame->flags &= ~SH_HUB_FRAME_FLAG_ALLOW_REENTRANT;
     SH_LOG_DEBUG("hub: disallow reentrant frame %p", return_address);
+  }
+}
+
+static sh_hub_frame_t *sh_hub_get_current_frame_by_func(void *func) {
+  sh_hub_stack_t *stack = (sh_hub_stack_t *)sh_safe_pthread_getspecific(sh_hub_stack_tls_key);
+  if (0 == stack->frames_cnt) return NULL;
+  sh_hub_frame_t *frame = &stack->frames[stack->frames_cnt - 1];
+  return frame->entry_func == func ? frame : NULL;
+}
+
+void sh_hub_allow_reentrant_by_func(void *func) {
+  sh_hub_frame_t *frame = sh_hub_get_current_frame_by_func(func);
+  if (NULL != frame) {
+    frame->flags |= SH_HUB_FRAME_FLAG_ALLOW_REENTRANT;
+    SH_LOG_DEBUG("hub: allow reentrant frame of func %p", func);
+  }
+}
+
+void sh_hub_disallow_reentrant_by_func(void *func) {
+  sh_hub_frame_t *frame = sh_hub_get_current_frame_by_func(func);
+  if (NULL != frame) {
+    frame->flags &= ~SH_HUB_FRAME_FLAG_ALLOW_REENTRANT;
+    SH_LOG_DEBUG("hub: disallow reentrant frame of func %p", func);
   }
 }
 

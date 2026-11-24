@@ -46,4 +46,7 @@ void *sh_hub_get_prev_func(void *func);
 void sh_hub_pop_stack(void *return_address);
 void sh_hub_allow_reentrant(void *return_address);
 void sh_hub_disallow_reentrant(void *return_address);
+void sh_hub_pop_stack_by_func(void *func);
+void sh_hub_allow_reentrant_by_func(void *func);
+void sh_hub_disallow_reentrant_by_func(void *func);
 void *sh_hub_get_return_address(void);

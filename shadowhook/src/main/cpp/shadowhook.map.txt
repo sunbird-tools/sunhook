@@ -53,6 +53,9 @@
         shadowhook_pop_stack;
         shadowhook_allow_reentrant;
         shadowhook_disallow_reentrant;
+        shadowhook_pop_stack_by_func;
+        shadowhook_allow_reentrant_by_func;
+        shadowhook_disallow_reentrant_by_func;
         shadowhook_get_return_address;
 
         /* The following functions are likely to appear in the backtrace,

@@ -235,6 +235,11 @@ void shadowhook_allow_reentrant(void *return_address);
 void shadowhook_disallow_reentrant(void *return_address);
 void *shadowhook_get_return_address(void);
 
+// for proxy-functions written in languages without __builtin_return_address(0)
+void shadowhook_pop_stack_by_func(void *func);
+void shadowhook_allow_reentrant_by_func(void *func);
+void shadowhook_disallow_reentrant_by_func(void *func);
+
 #ifdef __cplusplus
 }
 #endif
