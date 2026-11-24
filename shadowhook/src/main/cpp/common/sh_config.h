@@ -63,7 +63,7 @@
 //
 // Do not enable it in production environment !!!
 //
-// #define SH_CONFIG_TRY_HOOK_WITHOUT_ISLAND
+#define SH_CONFIG_TRY_HOOK_WITHOUT_ISLAND
 
 // When hooking the function of the thumb instruction, if the function is too short,
 // try to use the gap aligned at the end of the function.
