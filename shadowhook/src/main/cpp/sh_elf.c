@@ -51,7 +51,7 @@
 #elif defined(__aarch64__)
 #define SH_ELF_UNIT_SIZE      4
 #define SH_ELF_MIN_ALLOC_SIZE 8
-#elif defined(__x86_64__)
+#elif defined(__x86_64__) || defined(__i386__)
 #define SH_ELF_UNIT_SIZE      8
 #define SH_ELF_MIN_ALLOC_SIZE 16
 #endif
@@ -88,7 +88,7 @@ static sh_elf_useless_symbol_t sh_elf_useless_linker[] = {
     // __linker_init
     {"__dl___linker_init", 21, 37, false, true},
 // __linker_init_post_relocation
-#if defined(__arm__)
+#if defined(__arm__) || defined(__i386__)
     {"__dl__ZL29__linker_init_post_relocationR19KernelArgumentBlockj", 21, 26, false, true},
 #elif defined(__aarch64__) || defined(__x86_64__)
     {"__dl__ZL29__linker_init_post_relocationR19KernelArgumentBlocky", 21, 26, false, true},
@@ -116,7 +116,7 @@ static sh_elf_useless_symbol_t sh_elf_useless_libandroid_runtime[] = {
     {"_ZN7android14AndroidRuntime7startVmEPP7_JavaVMPP7_JNIEnvbb", 30, 37, true, true}
 };
 static sh_elf_useless_t sh_elf_useless[] = {
-#if defined(__arm__)
+#if defined(__arm__) || defined(__i386__)
     USELESS_ITEM(linker, sh_elf_useless_linker),
 #elif defined(__aarch64__) || defined(__x86_64__)
     USELESS_ITEM(linker64, sh_elf_useless_linker),

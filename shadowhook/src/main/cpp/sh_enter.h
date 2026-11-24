@@ -26,7 +26,7 @@
 
 #include "sh_config.h"
 
-#if defined(SH_CONFIG_TRY_HOOK_WITHOUT_ISLAND) || defined(__x86_64__)
+#if defined(SH_CONFIG_TRY_HOOK_WITHOUT_ISLAND) || defined(__x86_64__) || defined(__i386__)
 #define SH_ENTER_SZ 256
 #else
 #define SH_ENTER_SZ 64

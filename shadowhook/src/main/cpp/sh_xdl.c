@@ -47,7 +47,7 @@ typedef struct {
 #define INIT_ITEM(lib_name) {TO_STR(lib_name), 0, NULL, NULL, 0, PTHREAD_MUTEX_INITIALIZER}
 
 static sh_xdl_handle_info_t sh_xdl_handle_info_cache[] = {
-#if defined(__arm__)
+#if defined(__arm__) || defined(__i386__)
     INIT_ITEM(linker),
 #elif defined(__aarch64__) || defined(__x86_64__)
     INIT_ITEM(linker64),

@@ -19,7 +19,7 @@
 #include "sh_safe.h"
 #include "sh_sig.h"
 #include "sh_util.h"
-#include "sh_x64.h"
+#include "sh_x86.h"
 #include "shadowhook.h"
 
 #pragma clang diagnostic push
@@ -31,8 +31,35 @@
 #define SH_INST_ISLAND_ADDR_OFF 8
 #define SH_INST_INSTS_MAX       32
 
+#ifdef SH_X86_MODE32
+#define SH_INST_ARCH   "x86"
+#define SH_INST_REG_IP REG_EIP
+#define SH_INST_ISLAND_JMP(island)  \
+  {0xFF,                            \
+   0x25,                            \
+   (uint8_t)((island) + 8),         \
+   (uint8_t)(((island) + 8) >> 8),  \
+   (uint8_t)(((island) + 8) >> 16), \
+   (uint8_t)(((island) + 8) >> 24), \
+   0xCC,                            \
+   0xCC}
+
+static uintptr_t sh_inst_range_low(uintptr_t pc) {
+  (void)pc;
+  return 1;
+}
+
+static uintptr_t sh_inst_range_high(uintptr_t pc) {
+  (void)pc;
+  return UINTPTR_MAX;
+}
+#else
 // Keeps every byte of a 16-byte island, or of the enter, within rel32 reach.
 #define SH_INST_REL32_RANGE 0x7FFF0000
+
+#define SH_INST_ARCH               "x86_64"
+#define SH_INST_REG_IP             REG_RIP
+#define SH_INST_ISLAND_JMP(island) {0xFF, 0x25, 0x02, 0x00, 0x00, 0x00, 0xCC, 0xCC}
 
 static uintptr_t sh_inst_range_low(uintptr_t pc) {
   return pc > SH_INST_REL32_RANGE ? pc - SH_INST_REL32_RANGE : 1;
@@ -41,6 +68,7 @@ static uintptr_t sh_inst_range_low(uintptr_t pc) {
 static uintptr_t sh_inst_range_high(uintptr_t pc) {
   return UINTPTR_MAX - pc > SH_INST_REL32_RANGE ? pc + SH_INST_REL32_RANGE : UINTPTR_MAX;
 }
+#endif
 
 static void sh_inst_record_bytes(sh_recorder_trace_t *trace, uintptr_t addr, size_t len) {
   for (size_t i = 0; i < len; i++)
@@ -51,7 +79,7 @@ static void sh_inst_record(sh_inst_t *self, uintptr_t target_addr, uintptr_t new
                            sh_recorder_trace_t *trace) {
   if (!sh_recorder_get_recordable()) return;
 
-  sh_recorder_trace_append(trace, "B|x86_64|%shook;", is_rehook ? "re" : "");
+  sh_recorder_trace_append(trace, "B|" SH_INST_ARCH "|%shook;", is_rehook ? "re" : "");
 
   sh_recorder_trace_append(trace, "T|%" PRIxPTR "|", target_addr);
   sh_inst_record_bytes(trace, (uintptr_t)self->backup, self->backup_len);
@@ -79,18 +107,18 @@ static void sh_inst_record(sh_inst_t *self, uintptr_t target_addr, uintptr_t new
 static int sh_inst_rewrite(sh_inst_t *self, uintptr_t target_addr, size_t needed,
                            sh_inst_set_orig_addr_t set_orig_addr, void *set_orig_addr_arg) {
   const uint8_t *code = (const uint8_t *)target_addr;
-  sh_x64_inst_t insts[SH_INST_INSTS_MAX];
+  sh_x86_inst_t insts[SH_INST_INSTS_MAX];
   size_t offs[SH_INST_INSTS_MAX], new_offs[SH_INST_INSTS_MAX];
   size_t cnt = 0, len = 0, enter_len = 0;
   bool is_term = false;
 
   while (len < needed) {
     if (cnt == SH_INST_INSTS_MAX) return SHADOWHOOK_ERRNO_HOOK_REWRITE_FAILED;
-    sh_x64_inst_t *inst = &insts[cnt];
-    if (!sh_x64_decode(code + len, inst)) return SHADOWHOOK_ERRNO_HOOK_REWRITE_FAILED;
-    if (is_term && !sh_x64_is_padding(code + len, inst)) {
+    sh_x86_inst_t *inst = &insts[cnt];
+    if (!sh_x86_decode(code + len, inst)) return SHADOWHOOK_ERRNO_HOOK_REWRITE_FAILED;
+    if (is_term && !sh_x86_is_padding(code + len, inst)) {
       size_t j = 0;
-      while (j < cnt && !(SH_X64_KIND_PLAIN != insts[j].kind &&
+      while (j < cnt && !(SH_X86_KIND_PLAIN != insts[j].kind &&
                           (intptr_t)(offs[j] + insts[j].len) + insts[j].rel == (intptr_t)len))
         j++;
       if (j == cnt) return SHADOWHOOK_ERRNO_HOOK_SYMSZ;
@@ -99,20 +127,20 @@ static int sh_inst_rewrite(sh_inst_t *self, uintptr_t target_addr, size_t needed
 
     offs[cnt] = len;
     new_offs[cnt] = enter_len;
-    enter_len += sh_x64_rewrite_len(inst);
+    enter_len += sh_x86_rewrite_len(inst);
     len += inst->len;
     is_term = is_term || inst->is_term;
     cnt++;
   }
-  if (!is_term) enter_len += SH_X64_ABS_JMP_LEN;
+  if (!is_term) enter_len += SH_X86_ABS_JMP_LEN;
   if (len > sizeof(self->backup) || enter_len > SH_ENTER_SZ) return SHADOWHOOK_ERRNO_HOOK_REWRITE_FAILED;
 
   for (size_t i = 0; i < cnt; i++) {
-    sh_x64_inst_t *inst = &insts[i];
+    sh_x86_inst_t *inst = &insts[i];
     uintptr_t next_pc = target_addr + offs[i] + inst->len;
     uintptr_t dest = 0;
 
-    if (SH_X64_KIND_PLAIN != inst->kind) {
+    if (SH_X86_KIND_PLAIN != inst->kind) {
       dest = (uintptr_t)((intptr_t)next_pc + inst->rel);
       if (target_addr <= dest && dest < target_addr + len) {
         size_t j = 0;
@@ -128,11 +156,13 @@ static int sh_inst_rewrite(sh_inst_t *self, uintptr_t target_addr, size_t needed
     }
 
     bool ok;
-    sh_x64_rewrite((uint8_t *)(self->enter + new_offs[i]), code + offs[i], inst, dest,
+    sh_x86_rewrite((uint8_t *)(self->enter + new_offs[i]), code + offs[i], inst, dest,
                    self->enter + new_offs[i], &ok);
     if (!ok) return SHADOWHOOK_ERRNO_HOOK_REWRITE_FAILED;
   }
-  if (!is_term) sh_x64_abs_jmp((uint8_t *)(self->enter + enter_len - SH_X64_ABS_JMP_LEN), target_addr + len);
+  if (!is_term)
+    sh_x86_abs_jmp((uint8_t *)(self->enter + enter_len - SH_X86_ABS_JMP_LEN), target_addr + len,
+                   self->enter + enter_len - SH_X86_ABS_JMP_LEN);
 
   memcpy(self->backup, code, len);
   self->backup_len = len;
@@ -151,7 +181,7 @@ static int sh_inst_rewrite(sh_inst_t *self, uintptr_t target_addr, size_t needed
 
 static int sh_inst_safe_rewrite(sh_inst_t *self, uintptr_t target_addr, size_t needed,
                                 sh_inst_set_orig_addr_t set_orig_addr, void *set_orig_addr_arg) {
-  if (0 != sh_util_mprotect(target_addr, needed + SH_X64_INST_MAX_LEN, PROT_READ | PROT_WRITE | PROT_EXEC))
+  if (0 != sh_util_mprotect(target_addr, needed + SH_X86_INST_MAX_LEN, PROT_READ | PROT_WRITE | PROT_EXEC))
     return SHADOWHOOK_ERRNO_MPROT;
 
   int r;
@@ -172,17 +202,17 @@ static int sh_inst_check_branches(sh_inst_t *self, uintptr_t target_addr, size_t
   int r = 0;
   SH_SIG_TRY(SIGSEGV, SIGBUS) {
     for (uintptr_t pc = func; pc < func + func_len;) {
-      sh_x64_inst_t inst;
-      if (!sh_x64_decode((const uint8_t *)pc, &inst)) {
-        SH_LOG_WARN("x64: undecodable instruction at %" PRIxPTR ", target %" PRIxPTR, pc, target_addr);
+      sh_x86_inst_t inst;
+      if (!sh_x86_decode((const uint8_t *)pc, &inst)) {
+        SH_LOG_WARN("x86: undecodable instruction at %" PRIxPTR ", target %" PRIxPTR, pc, target_addr);
         r = SHADOWHOOK_ERRNO_HOOK_REWRITE_FAILED;
         break;
       }
       bool in_backup = target_addr <= pc && pc < target_addr + self->backup_len;
-      if (SH_X64_KIND_PLAIN != inst.kind && !in_backup) {
+      if (SH_X86_KIND_PLAIN != inst.kind && !in_backup) {
         uintptr_t dest = (uintptr_t)((intptr_t)(pc + inst.len) + inst.rel);
         if (target_addr < dest && dest < target_addr + patch_len) {
-          SH_LOG_WARN("x64: branch at %" PRIxPTR " lands inside the patch at %" PRIxPTR, pc, target_addr);
+          SH_LOG_WARN("x86: branch at %" PRIxPTR " lands inside the patch at %" PRIxPTR, pc, target_addr);
           r = SHADOWHOOK_ERRNO_HOOK_REWRITE_FAILED;
           break;
         }
@@ -243,18 +273,18 @@ static int sh_inst_reloc_with_island(sh_inst_t *self, uintptr_t target_addr, sh_
     r = sh_util_write_inst(self->island_exit.addr + SH_INST_ISLAND_ADDR_OFF, &new_addr, sizeof(new_addr));
     if (0 != r) return r;
   } else {
-    uintptr_t pc = target_addr + SH_X64_REL_JMP_LEN;
+    uintptr_t pc = target_addr + SH_X86_REL_JMP_LEN;
     sh_island_alloc(&self->island_exit, SH_INST_ISLAND_SIZE, sh_inst_range_low(pc), sh_inst_range_high(pc),
                     target_addr, addr_info, trace);
     if (0 == self->island_exit.addr) return SHADOWHOOK_ERRNO_HOOK_ISLAND_EXIT;
 
-    static const uint8_t jmp_rip2[] = {0xFF, 0x25, 0x02, 0x00, 0x00, 0x00, 0xCC, 0xCC};
+    const uint8_t island_jmp[] = SH_INST_ISLAND_JMP(self->island_exit.addr);
     uint8_t *island = (uint8_t *)self->island_exit.addr;
-    memcpy(island, jmp_rip2, sizeof(jmp_rip2));
+    memcpy(island, island_jmp, sizeof(island_jmp));
     memcpy(island + SH_INST_ISLAND_ADDR_OFF, &new_addr, sizeof(new_addr));
 
-    uint8_t jmp[SH_X64_REL_JMP_LEN];
-    sh_x64_rel_jmp(jmp, self->island_exit.addr, target_addr);
+    uint8_t jmp[SH_X86_REL_JMP_LEN];
+    sh_x86_rel_jmp(jmp, self->island_exit.addr, target_addr);
     if (0 != (r = sh_inst_write_exit(self, target_addr, jmp, sizeof(jmp)))) {
       sh_island_free(&self->island_exit, (uintptr_t)addr_info->dli_fbase);
       return r;
@@ -262,7 +292,7 @@ static int sh_inst_reloc_with_island(sh_inst_t *self, uintptr_t target_addr, sh_
   }
 
   sh_inst_record(self, target_addr, new_addr, is_rehook, trace);
-  SH_LOG_INFO("x64: %shook (with island) OK. target %" PRIxPTR, is_rehook ? "re" : "", target_addr);
+  SH_LOG_INFO("x86: %shook (with island) OK. target %" PRIxPTR, is_rehook ? "re" : "", target_addr);
   return 0;
 }
 #endif
@@ -270,14 +300,14 @@ static int sh_inst_reloc_with_island(sh_inst_t *self, uintptr_t target_addr, sh_
 #ifdef SH_CONFIG_TRY_HOOK_WITHOUT_ISLAND
 static int sh_inst_reloc_without_island(sh_inst_t *self, uintptr_t target_addr, uintptr_t new_addr,
                                         bool is_rehook, sh_recorder_trace_t *trace) {
-  uint8_t jmp[SH_X64_ABS_JMP_LEN];
-  sh_x64_abs_jmp(jmp, new_addr);
+  uint8_t jmp[SH_X86_ABS_JMP_LEN];
+  sh_x86_abs_jmp(jmp, new_addr, target_addr);
 
   int r = sh_inst_write_exit(self, target_addr, jmp, sizeof(jmp));
   if (0 != r) return r;
 
   sh_inst_record(self, target_addr, new_addr, is_rehook, trace);
-  SH_LOG_INFO("x64: %shook (without island) OK. target %" PRIxPTR, is_rehook ? "re" : "", target_addr);
+  SH_LOG_INFO("x86: %shook (without island) OK. target %" PRIxPTR, is_rehook ? "re" : "", target_addr);
   return 0;
 }
 #endif
@@ -306,7 +336,7 @@ static void sh_inst_fixup_handler(int signum, siginfo_t *info, void *uc) {
     return;
   }
 
-  greg_t *rip = &((ucontext_t *)uc)->uc_mcontext.gregs[REG_RIP];
+  greg_t *rip = &((ucontext_t *)uc)->uc_mcontext.gregs[SH_INST_REG_IP];
   for (size_t i = 0; i < sh_inst_fixup_cnt; i++) {
     if ((uintptr_t)*rip != sh_inst_fixup_from[i]) continue;
     if (seq == __atomic_load_n(&sh_inst_fixup_seq, __ATOMIC_ACQUIRE)) *rip = (greg_t)sh_inst_fixup_to[i];
@@ -376,7 +406,7 @@ static void sh_inst_fixup_threads(sh_inst_t *self, uintptr_t target_addr) {
 
   if (acks >= sent && 0 == sys_sigaction(signum, &sh_inst_fixup_old, NULL)) sh_inst_fixup_installed = false;
   if (acks < sent)
-    SH_LOG_WARN("x64: %zu of %zu threads answered the fixup for %" PRIxPTR, acks, sent, target_addr);
+    SH_LOG_WARN("x86: %zu of %zu threads answered the fixup for %" PRIxPTR, acks, sent, target_addr);
 
 end:
   __atomic_add_fetch(&sh_inst_fixup_seq, 1, __ATOMIC_RELEASE);
@@ -387,11 +417,12 @@ end:
 // Relocated rip-relative operands keep their disp32, so the enter has to reach each destination.
 static void sh_inst_enter_range(uintptr_t target_addr, uintptr_t *low, uintptr_t *high) {
   volatile uintptr_t lo = target_addr, hi = target_addr;
+#ifndef SH_X86_MODE32
   SH_SIG_TRY(SIGSEGV, SIGBUS) {
-    for (size_t len = 0; len < SH_X64_ABS_JMP_LEN;) {
+    for (size_t len = 0; len < SH_X86_ABS_JMP_LEN;) {
       const uint8_t *code = (const uint8_t *)(target_addr + len);
-      sh_x64_inst_t inst;
-      if (!sh_x64_decode(code, &inst)) break;
+      sh_x86_inst_t inst;
+      if (!sh_x86_decode(code, &inst)) break;
       len += inst.len;
       if (0 == inst.disp_off) continue;
 
@@ -404,6 +435,7 @@ static void sh_inst_enter_range(uintptr_t target_addr, uintptr_t *low, uintptr_t
   }
   SH_SIG_CATCH() {}
   SH_SIG_EXIT
+#endif
   *low = sh_inst_range_low(hi);
   *high = sh_inst_range_high(lo);
 }
@@ -422,13 +454,13 @@ int sh_inst_hook(sh_inst_t *self, uintptr_t target_addr, sh_addr_info_t *addr_in
   uintptr_t func;
   size_t func_len;
   sh_inst_get_func(target_addr, addr_info, &func, &func_len);
-  if (0 == func_len) SH_LOG_WARN("x64: no symbol bounds for %" PRIxPTR ", branches unchecked", target_addr);
+  if (0 == func_len) SH_LOG_WARN("x86: no symbol bounds for %" PRIxPTR ", branches unchecked", target_addr);
 
   int r = -1;
 #ifdef SH_CONFIG_TRY_HOOK_WITH_ISLAND
-  if (0 == (r = sh_inst_safe_rewrite(self, target_addr, SH_X64_REL_JMP_LEN, set_orig_addr,
+  if (0 == (r = sh_inst_safe_rewrite(self, target_addr, SH_X86_REL_JMP_LEN, set_orig_addr,
                                      set_orig_addr_arg)) &&
-      0 == (r = sh_inst_check_branches(self, target_addr, SH_X64_REL_JMP_LEN, func, func_len)) &&
+      0 == (r = sh_inst_check_branches(self, target_addr, SH_X86_REL_JMP_LEN, func, func_len)) &&
       0 == (r = sh_inst_reloc_with_island(self, target_addr, addr_info, new_addr, false, trace))) {
     sh_inst_fixup_threads(self, target_addr);
     return 0;
@@ -437,9 +469,9 @@ int sh_inst_hook(sh_inst_t *self, uintptr_t target_addr, sh_addr_info_t *addr_in
 
 #ifdef SH_CONFIG_TRY_HOOK_WITHOUT_ISLAND
   if (SHADOWHOOK_ERRNO_HOOK_ISLAND_EXIT == r || -1 == r) {
-    if (0 == (r = sh_inst_safe_rewrite(self, target_addr, SH_X64_ABS_JMP_LEN, set_orig_addr,
+    if (0 == (r = sh_inst_safe_rewrite(self, target_addr, SH_X86_ABS_JMP_LEN, set_orig_addr,
                                        set_orig_addr_arg)) &&
-        0 == (r = sh_inst_check_branches(self, target_addr, SH_X64_ABS_JMP_LEN, func, func_len)) &&
+        0 == (r = sh_inst_check_branches(self, target_addr, SH_X86_ABS_JMP_LEN, func, func_len)) &&
         0 == (r = sh_inst_reloc_without_island(self, target_addr, new_addr, false, trace))) {
       sh_inst_fixup_threads(self, target_addr);
       return 0;
@@ -488,7 +520,7 @@ int sh_inst_unhook(sh_inst_t *self, uintptr_t target_addr, uintptr_t load_bias) 
   if (0 != self->island_exit.addr) sh_island_free(&self->island_exit, load_bias);
   sh_enter_free(self->enter);
 
-  SH_LOG_INFO("x64: unhook OK. target %" PRIxPTR, target_addr);
+  SH_LOG_INFO("x86: unhook OK. target %" PRIxPTR, target_addr);
   return 0;
 }
 
@@ -496,11 +528,21 @@ void sh_inst_free_after_dlclose(sh_inst_t *self, uintptr_t target_addr) {
   if (0 != self->island_exit.addr) sh_island_free_after_dlclose(&self->island_exit);
   sh_enter_free(self->enter);
 
-  SH_LOG_INFO("x64: free_after_dlclose OK. target %" PRIxPTR, target_addr);
+  SH_LOG_INFO("x86: free_after_dlclose OK. target %" PRIxPTR, target_addr);
 }
 
 extern void shadowhook_interceptor_glue(void);
 
+#ifdef SH_X86_MODE32
+void sh_inst_build_glue_launcher(void *buf, void *ctx) {
+  uint8_t *b = (uint8_t *)buf;
+  b[0] = 0x68;  // push ctx
+  memcpy(b + 1, &ctx, sizeof(ctx));
+  sh_x86_rel_jmp(b + 5, (uintptr_t)shadowhook_interceptor_glue, (uintptr_t)b + 5);
+  b[10] = 0xCC;
+  b[11] = 0xCC;
+}
+#else
 // The red zone is skipped because an intercepted instruction may sit in a leaf function
 // that keeps live data below rsp.
 void sh_inst_build_glue_launcher(void *buf, void *ctx) {
@@ -516,3 +558,4 @@ void sh_inst_build_glue_launcher(void *buf, void *ctx) {
   memcpy(b + 24, &ctx, sizeof(ctx));
   memcpy(b + 32, &glue, sizeof(glue));
 }
+#endif

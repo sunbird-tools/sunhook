@@ -232,6 +232,39 @@ __attribute__((naked)) static void sh_hub_trampo_template(void) {
       ".quad 0;"
       ".L_hub_ptr:"
       ".quad 0;");
+#elif defined(__i386__)
+  __asm__(
+      // Reserve the slot that ret jumps through, save regparm registers. Keep esp 16-aligned at the call.
+      "subl    $4, %esp                   \n"
+      "pushl   %eax                       \n"
+      "pushl   %ecx                       \n"
+      "pushl   %edx                       \n"
+      "call    1f                         \n"
+      "1:                                 \n"
+      "popl    %ecx                       \n"
+
+      // Call sh_hub_push_stack()
+      "subl    $4, %esp                   \n"
+      "pushl   0x14(%esp)                 \n"
+      "pushl   (.L_hub_ptr - 1b)(%ecx)    \n"
+      "calll   *(.L_push_stack - 1b)(%ecx)\n"
+      "addl    $0xc, %esp                 \n"
+
+      // Store the hook function's address in the reserved slot
+      "movl    %eax, 0xc(%esp)            \n"
+
+      // Restore registers, then call hook function
+      "popl    %edx                       \n"
+      "popl    %ecx                       \n"
+      "popl    %eax                       \n"
+      "retl                               \n"
+
+      "sh_hub_trampo_template_data:"
+      ".global sh_hub_trampo_template_data;"
+      ".L_push_stack:"
+      ".long 0;"
+      ".L_hub_ptr:"
+      ".long 0;");
 #endif
 }
 
@@ -351,7 +384,7 @@ static int sh_hub_init(void) {
 #if defined(__thumb__)
   sh_hub_trampo_code_start = SH_UTIL_CLEAR_BIT0(sh_hub_trampo_code_start);
 #endif
-#elif defined(__aarch64__) || defined(__x86_64__)
+#elif defined(__aarch64__) || defined(__x86_64__) || defined(__i386__)
   sh_hub_trampo_code_start = (uintptr_t)&sh_hub_trampo_template;
   data_start = (uintptr_t)(&sh_hub_trampo_template_data);
 #endif

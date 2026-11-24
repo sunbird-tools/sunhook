@@ -238,12 +238,14 @@ int sh_util_write_inst(uintptr_t target_addr, void *inst, size_t inst_len) {
     return SHADOWHOOK_ERRNO_MPROT;
 
   SH_SIG_TRY(SIGSEGV, SIGBUS) {
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__i386__)
+    // i386 aligns uint64_t to 4, which turns the store into a lock-based libcall.
+    typedef uint64_t qword_t __attribute__((aligned(8)));
     uintptr_t qword = target_addr & ~(uintptr_t)7;
     if (target_addr + inst_len <= qword + 8) {
-      uint64_t val64 = *(uint64_t *)qword;
+      qword_t val64 = *(qword_t *)qword;
       memcpy((uint8_t *)&val64 + (target_addr - qword), inst, inst_len);
-      __atomic_store_n((uint64_t *)qword, val64, __ATOMIC_SEQ_CST);
+      __atomic_store_n((qword_t *)qword, val64, __ATOMIC_SEQ_CST);
     } else {
       // Park threads that reach target_addr on "jmp ." while the tail is written. The tail is
       // copied byte by byte because target_addr may be memcpy itself.

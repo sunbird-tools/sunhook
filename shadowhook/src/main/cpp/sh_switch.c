@@ -55,6 +55,8 @@
 #define SH_SWITCH_GLUE_LAUNCHER_SZ 28
 #elif defined(__x86_64__)
 #define SH_SWITCH_GLUE_LAUNCHER_SZ 40
+#elif defined(__i386__)
+#define SH_SWITCH_GLUE_LAUNCHER_SZ 12
 #endif
 
 #define SH_SWITCH_HOOK_MODE_NONE   0  // only interceptors
@@ -395,6 +397,8 @@ void shadowhook_interceptor_caller(void *ctx, shadowhook_cpu_context_t *cpu_cont
   cpu_context->regs[15] = SH_UTIL_CLEAR_BIT0(self->target_addr);
 #elif defined(__x86_64__)
   cpu_context->rip = self->target_addr;
+#elif defined(__i386__)
+  cpu_context->eip = self->target_addr;
 #endif
 
   sh_switch_interceptor_t *interceptor;

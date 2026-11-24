@@ -44,7 +44,7 @@
 #define SH_ISLAND_SIZE_MAX 8
 #elif defined(__aarch64__)
 #define SH_ISLAND_SIZE_MAX 20
-#elif defined(__x86_64__)
+#elif defined(__x86_64__) || defined(__i386__)
 #define SH_ISLAND_SIZE_MAX 16
 #endif
 

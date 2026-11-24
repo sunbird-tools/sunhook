@@ -183,6 +183,15 @@ typedef struct {
   uint64_t mxcsr;
   uint64_t reserved;
 } shadowhook_cpu_context_t;
+#elif defined(__i386__)
+typedef struct {
+  uint32_t regs[8];  // eax, ecx, edx, ebx, esp, ebp, esi, edi (esp is read-only)
+  uint32_t eip;
+  uint32_t eflags;
+  uint32_t mxcsr;
+  uint32_t reserved;
+  shadowhook_vreg_t vregs[8];  // xmm0-xmm7
+} shadowhook_cpu_context_t;
 #endif
 
 #define SHADOWHOOK_INTERCEPT_DEFAULT                0  // 0b000

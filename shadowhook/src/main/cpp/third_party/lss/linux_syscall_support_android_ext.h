@@ -34,7 +34,7 @@
 #pragma clang diagnostic ignored "-Wpadded"
 #include "linux_syscall_support.h"
 
-#if defined(__aarch64__) || defined(__arm__) || defined(__x86_64__)
+#if defined(__aarch64__) || defined(__arm__) || defined(__x86_64__) || defined(__i386__)
 
 #include <sys/sysinfo.h>
 LSS_INLINE _syscall1(int, sysinfo, struct sysinfo *, i)
