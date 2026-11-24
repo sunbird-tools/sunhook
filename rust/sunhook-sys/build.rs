@@ -72,6 +72,7 @@ fn main() {
       .compile("shadowhook");
 
    println!("cargo:rustc-link-lib=log");
+   println!("cargo:include={}", src.join("include").display());
    link_compiler_rt();
 
    build_nothing(&src, arch);
