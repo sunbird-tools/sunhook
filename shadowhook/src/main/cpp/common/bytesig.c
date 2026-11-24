@@ -69,7 +69,7 @@ typedef int (*bytesig_sigprocmask_t)(int, const sigset_t *, sigset_t *);
 static void *bytesig_sigaction;    // point to libc's sigaction64() or libc's sigaction()
 static void *bytesig_sigprocmask;  // point to libc's sigprocmask() or libc's sigprocmask64()
 
-__attribute__((constructor)) static void bytesig_ctor(void) {
+__attribute__((constructor(101))) static void bytesig_ctor(void) {
   void *libc = dlopen("libc.so", RTLD_LOCAL);
   if (__predict_false(NULL == libc)) return;
 

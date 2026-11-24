@@ -31,7 +31,7 @@
 static int sh_errno_global = SHADOWHOOK_ERRNO_INIT_ERRNO;
 static pthread_key_t sh_errno_tls_key;
 
-__attribute__((constructor)) static void sh_errno_ctor(void) {
+__attribute__((constructor(101))) static void sh_errno_ctor(void) {
   if (__predict_true(0 == pthread_key_create(&sh_errno_tls_key, NULL))) {
     sh_errno_global = SHADOWHOOK_ERRNO_OK;
   }

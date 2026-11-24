@@ -98,7 +98,7 @@ static sh_linker_dlopen_post_t sh_linker_dlopen_post;
 static uintptr_t sh_linker_dlfcn[6];
 static const char *sh_linker_dlfcn_name[6] = {"dlopen", "dlerror", "dlsym",
                                               "dladdr", "dlclose", "dl_unwind_find_exidx"};
-__attribute__((constructor)) static void sh_linker_ctor(void) {
+__attribute__((constructor(101))) static void sh_linker_ctor(void) {
   // Android 4.x linker does not export these symbols. We save the addresses of these
   // functions in the .init_array to reduce the probability of being PLT-hooked.
   // The purpose of the negation operation(~) is to avoid being optimized by the compiler.
