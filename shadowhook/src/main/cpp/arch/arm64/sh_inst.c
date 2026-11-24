@@ -278,6 +278,39 @@ static int sh_inst_hook_with_island(sh_inst_t *self, uintptr_t target_addr, sh_a
 #endif
 
 #ifdef SH_CONFIG_TRY_HOOK_WITHOUT_ISLAND
+// Loops such as getenv's branch back into the patched bytes.
+static int sh_inst_check_branches(uintptr_t target_addr, size_t patch_len, uintptr_t func, size_t func_len) {
+  int r = 0;
+  SH_SIG_TRY(SIGSEGV, SIGBUS) {
+    for (uintptr_t pc = func; pc + 4 <= func + func_len; pc += 4) {
+      if (target_addr <= pc && pc < target_addr + patch_len) continue;
+
+      uint32_t inst = *((uint32_t *)pc);
+      int64_t offset;
+      if (0x14000000 == (inst & 0x7C000000))
+        offset = (int64_t)SH_UTIL_SIGN_EXTEND_64((uint64_t)(inst & 0x3FFFFFF) << 2u, 28u);
+      else if (0x54000000 == (inst & 0xFF000000) || 0x34000000 == (inst & 0x7E000000))
+        offset = (int64_t)SH_UTIL_SIGN_EXTEND_64((uint64_t)((inst >> 5u) & 0x7FFFF) << 2u, 21u);
+      else if (0x36000000 == (inst & 0x7E000000))
+        offset = (int64_t)SH_UTIL_SIGN_EXTEND_64((uint64_t)((inst >> 5u) & 0x3FFF) << 2u, 16u);
+      else
+        continue;
+
+      uintptr_t dest = (uintptr_t)((int64_t)pc + offset);
+      if (target_addr < dest && dest < target_addr + patch_len) {
+        SH_LOG_WARN("a64: branch at %" PRIxPTR " lands inside the patch at %" PRIxPTR, pc, target_addr);
+        r = SHADOWHOOK_ERRNO_HOOK_REWRITE_FAILED;
+        break;
+      }
+    }
+  }
+  SH_SIG_CATCH() {
+    r = SHADOWHOOK_ERRNO_HOOK_REWRITE_CRASH;
+  }
+  SH_SIG_EXIT
+  return r;
+}
+
 static int sh_inst_rewrite_without_island(sh_inst_t *self, uintptr_t target_addr, sh_addr_info_t *addr_info,
                                           sh_inst_set_orig_addr_t set_orig_addr, void *set_orig_addr_arg) {
   uintptr_t resume_addr;
@@ -314,6 +347,11 @@ static int sh_inst_rewrite_without_island(sh_inst_t *self, uintptr_t target_addr
       }
     }
     if (resume_len < self->backup_len) return SHADOWHOOK_ERRNO_HOOK_SYMSZ;
+  }
+
+  if (NULL != sym->dli_saddr) {
+    int r = sh_inst_check_branches(target_addr, self->backup_len, (uintptr_t)sym->dli_saddr, sym->dli_ssize);
+    if (0 != r) return r;
   }
 
   return sh_inst_safe_rewrite(self, target_addr, addr_info, resume_addr, set_orig_addr, set_orig_addr_arg);
