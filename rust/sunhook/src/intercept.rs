@@ -96,6 +96,8 @@ type AddrInterceptFn = unsafe extern "C" fn(
 ) -> *mut c_void;
 
 /// Runs `interceptor` before the first instruction of the function at `target`.
+/// Fails with [`Error::NotSupported`] on x86_64 Linux while a CET shadow stack
+/// is enabled.
 ///
 /// # Safety
 ///
@@ -156,6 +158,8 @@ where
 
 /// Runs `interceptor` before the instruction at `addr`, which may sit anywhere
 /// in a function. On arm32 a Thumb instruction's address must have bit 0 set.
+/// Fails with [`Error::NotSupported`] on x86_64 Linux while a CET shadow stack
+/// is enabled.
 ///
 /// # Safety
 ///

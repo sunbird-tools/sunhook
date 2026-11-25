@@ -31,6 +31,15 @@
 #include <string.h>
 #include <unistd.h>
 
+#if defined(__x86_64__) && !defined(__ANDROID__)
+#include <asm/prctl.h>
+#include <sys/syscall.h>
+#ifndef ARCH_SHSTK_STATUS
+#define ARCH_SHSTK_STATUS 0x5005
+#define ARCH_SHSTK_SHSTK (1ULL << 0)
+#endif
+#endif
+
 #include "queue.h"
 #include "sh_config.h"
 #include "sh_errno.h"
@@ -905,6 +914,13 @@ end:
 
 int sh_switch_intercept(uintptr_t target_addr, sh_addr_info_t *addr_info, shadowhook_interceptor_t pre,
                         void *data, size_t flags, sh_recorder_trace_t *trace) {
+#if defined(__x86_64__) && !defined(__ANDROID__)
+  // shadowhook_interceptor_glue leaves with a RET that no CALL pushed, which a CET shadow stack faults on.
+  unsigned long long features = 0;
+  if (0 == syscall(SYS_arch_prctl, ARCH_SHSTK_STATUS, &features) && (features & ARCH_SHSTK_SHSTK))
+    return SHADOWHOOK_ERRNO_NOT_SUPPORT;
+#endif
+
   int r;
   do {
     r = sh_switch_intercept_impl(target_addr, addr_info, pre, data, flags, trace);
