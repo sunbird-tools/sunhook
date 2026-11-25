@@ -72,7 +72,7 @@ static bool sh_xdl_match_pathname(const char *pathname, const char *lib_name) {
 static void *sh_xdl_open_from_linker(const char *lib_name) {
   void *handle = NULL;
 
-  if (SHADOWHOOK_ERRNO_OK != shadowhook_get_init_errno() || sh_util_get_api_level() >= __ANDROID_API_L__) {
+  if (SHADOWHOOK_ERRNO_OK != shadowhook_get_init_errno() || SH_UTIL_API_AT_LEAST(__ANDROID_API_L__)) {
     handle = xdl_open(lib_name, XDL_DEFAULT);
   } else {
     SH_SIG_TRY(SIGSEGV, SIGBUS) {

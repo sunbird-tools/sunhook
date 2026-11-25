@@ -22,7 +22,9 @@
 // Created by Kelun Cai (caikelun@bytedance.com) on 2021-04-11.
 
 #pragma once
+#ifdef __ANDROID__
 #include <android/api-level.h>
+#endif
 #include <errno.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -30,12 +32,16 @@
 #include <stdint.h>
 #include <time.h>
 
+#include "sh_config.h"
+
+#ifdef __ANDROID__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wreserved-id-macro"
 #ifndef __ANDROID_API_U__
 #define __ANDROID_API_U__ 34
 #endif
 #pragma clang diagnostic pop
+#endif
 
 #define SH_UTIL_ALIGN_START(x, align) ((uintptr_t)(x) & ~((uintptr_t)(align) - 1))
 #define SH_UTIL_ALIGN_END(x, align)   (((uintptr_t)(x) + (uintptr_t)(align) - 1) & ~((uintptr_t)(align) - 1))
@@ -61,8 +67,20 @@
 
 void sh_util_init(void);
 
+#ifdef __ANDROID__
 // API level
 int sh_util_get_api_level(void);
+#define SH_UTIL_API_AT_LEAST(level) (sh_util_get_api_level() >= (level))
+#else
+// glibc needs none of the old-bionic workarounds that API level checks select.
+#define SH_UTIL_API_AT_LEAST(level) true
+#endif
+
+#ifdef __ANDROID__
+#define SH_UTIL_LIBC_NAME "libc.so"
+#else
+#define SH_UTIL_LIBC_NAME "libc.so.6"
+#endif
 
 // ARM CPU features
 #if defined(__arm__)

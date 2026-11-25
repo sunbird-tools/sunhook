@@ -23,6 +23,7 @@
 
 #pragma once
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #define SH_RECORDER_OP_HOOK_INSTR_ADDR         0

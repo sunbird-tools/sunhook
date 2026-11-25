@@ -86,6 +86,7 @@ bool sh_util_ends_with(const char *str, const char *ending) {
   return 0 == strcmp(str + (str_len - ending_len), ending);
 }
 
+#ifdef __ANDROID__
 static int sh_util_get_api_level_from_build_prop(void) {
   char buf[128];
   int api_level = -1;
@@ -123,6 +124,7 @@ int sh_util_get_api_level(void) {
   }
   return val;
 }
+#endif
 
 #if defined(__arm__)
 static size_t sh_util_cpu_features;

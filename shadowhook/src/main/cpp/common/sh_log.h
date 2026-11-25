@@ -22,7 +22,6 @@
 // Created by Kelun Cai (caikelun@bytedance.com) on 2021-04-11.
 
 #pragma once
-#include <android/log.h>
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -30,7 +29,16 @@
 
 #include "sh_config.h"
 
-extern android_LogPriority sh_log_priority;
+typedef enum {
+  SH_LOG_PRIO_INFO = 4,
+  SH_LOG_PRIO_WARN = 5,
+  SH_LOG_PRIO_ERROR = 6,
+  SH_LOG_PRIO_SILENT = 8
+} sh_log_prio_t;
+
+extern sh_log_prio_t sh_log_priority;
+
+void sh_log_print(sh_log_prio_t prio, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 
 #define SH_LOG_TAG "shadowhook_tag"
 
@@ -40,31 +48,30 @@ extern android_LogPriority sh_log_priority;
 // Notice:
 // We don't use ANDROID_LOG_DEBUG, because some Android devices will filter out ANDROID_LOG_DEBUG.
 #ifdef SH_CONFIG_DEBUG
-#define SH_LOG_DEBUG(fmt, ...)                                               \
-  do {                                                                       \
-    if (sh_log_priority <= ANDROID_LOG_INFO)                                 \
-      __android_log_print(ANDROID_LOG_INFO, SH_LOG_TAG, fmt, ##__VA_ARGS__); \
+#define SH_LOG_DEBUG(fmt, ...)                                                                   \
+  do {                                                                                           \
+    if (sh_log_priority <= SH_LOG_PRIO_INFO) sh_log_print(SH_LOG_PRIO_INFO, fmt, ##__VA_ARGS__); \
   } while (0)
 #else
 #define SH_LOG_DEBUG(fmt, ...)
 #endif
 
-#define SH_LOG_INFO(fmt, ...)                                                \
-  do {                                                                       \
-    if (__predict_false(sh_log_priority <= ANDROID_LOG_INFO))                \
-      __android_log_print(ANDROID_LOG_INFO, SH_LOG_TAG, fmt, ##__VA_ARGS__); \
+#define SH_LOG_INFO(fmt, ...)                                 \
+  do {                                                        \
+    if (__predict_false(sh_log_priority <= SH_LOG_PRIO_INFO)) \
+      sh_log_print(SH_LOG_PRIO_INFO, fmt, ##__VA_ARGS__);     \
   } while (0)
-#define SH_LOG_WARN(fmt, ...)                                                \
-  do {                                                                       \
-    if (__predict_false(sh_log_priority <= ANDROID_LOG_WARN))                \
-      __android_log_print(ANDROID_LOG_WARN, SH_LOG_TAG, fmt, ##__VA_ARGS__); \
+#define SH_LOG_WARN(fmt, ...)                                 \
+  do {                                                        \
+    if (__predict_false(sh_log_priority <= SH_LOG_PRIO_WARN)) \
+      sh_log_print(SH_LOG_PRIO_WARN, fmt, ##__VA_ARGS__);     \
   } while (0)
-#define SH_LOG_ERROR(fmt, ...)                                                \
-  do {                                                                        \
-    if (__predict_false(sh_log_priority <= ANDROID_LOG_ERROR))                \
-      __android_log_print(ANDROID_LOG_ERROR, SH_LOG_TAG, fmt, ##__VA_ARGS__); \
+#define SH_LOG_ERROR(fmt, ...)                                 \
+  do {                                                         \
+    if (__predict_false(sh_log_priority <= SH_LOG_PRIO_ERROR)) \
+      sh_log_print(SH_LOG_PRIO_ERROR, fmt, ##__VA_ARGS__);     \
   } while (0)
-#define SH_LOG_ALWAYS_SHOW(fmt, ...) __android_log_print(ANDROID_LOG_ERROR, SH_LOG_TAG, fmt, ##__VA_ARGS__)
+#define SH_LOG_ALWAYS_SHOW(fmt, ...) sh_log_print(SH_LOG_PRIO_ERROR, fmt, ##__VA_ARGS__)
 
 #pragma clang diagnostic pop
 

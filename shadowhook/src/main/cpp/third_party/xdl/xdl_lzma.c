@@ -140,7 +140,6 @@ int xdl_lzma_decompress(uint8_t *src, size_t src_size, uint8_t **dst, size_t *ds
   xdl_lzma_construct(&state, &alloc);
 
   // LZMA decompress
-  int api_level = xdl_util_get_api_level();
   ECoderStatus status;
   size_t src_offset = 0;
   size_t dst_offset = 0;
@@ -159,7 +158,7 @@ int xdl_lzma_decompress(uint8_t *src, size_t src_size, uint8_t **dst, size_t *ds
     }
 
     int result;
-    if (api_level >= __ANDROID_API_Q__) {
+    if (XDL_UTIL_API_AT_LEAST(__ANDROID_API_Q__)) {
       xdl_lzma_code_q_t lzma_code_q = (xdl_lzma_code_q_t)xdl_lzma_code;
       result = lzma_code_q(&state, *dst + dst_offset, &dst_remaining, src + src_offset, &src_remaining, 1,
                            CODER_FINISH_ANY, &status);

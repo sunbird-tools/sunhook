@@ -72,7 +72,12 @@ bool xdl_util_ends_with(const char *str, const char *ending);
 
 size_t xdl_util_trim_ending(char *start);
 
+#ifdef __ANDROID__
 int xdl_util_get_api_level(void);
+#define XDL_UTIL_API_AT_LEAST(level) (xdl_util_get_api_level() >= (level))
+#else
+#define XDL_UTIL_API_AT_LEAST(level) true
+#endif
 
 size_t xdl_util_get_pagesize(void);
 

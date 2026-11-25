@@ -28,9 +28,11 @@
 #ifdef SH_CONFIG_OPERATION_RECORDS
 
 #include <inttypes.h>
+#include <limits.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
@@ -241,7 +243,7 @@ static void sh_recorder_get_base_name_by_addr(uintptr_t addr, char *base_name, s
   }
   dlcache_ts = now;
 
-  if (sh_util_get_api_level() >= __ANDROID_API_L__) {
+  if (SH_UTIL_API_AT_LEAST(__ANDROID_API_L__)) {
     r = xdl_addr4((void *)addr, &dlinfo, &dlcache, XDL_NON_SYM);
   } else {
     SH_SIG_TRY(SIGSEGV, SIGBUS) {

@@ -23,31 +23,55 @@
 
 #include "sh_log.h"
 
-#include <android/log.h>
+#include <stdarg.h>
 #include <stdbool.h>
+#ifdef __ANDROID__
+#include <android/log.h>
+#else
+#include <stdio.h>
+#include <unistd.h>
+#endif
 
 #include "sh_config.h"
 
-android_LogPriority sh_log_priority =
+sh_log_prio_t sh_log_priority =
 #ifdef SH_CONFIG_DEBUG
-    ANDROID_LOG_INFO
+    SH_LOG_PRIO_INFO
 #else
-    ANDROID_LOG_SILENT
+    SH_LOG_PRIO_SILENT
 #endif
     ;
 
 bool sh_log_get_debuggable(void) {
-  return sh_log_priority <= ANDROID_LOG_INFO;
+  return sh_log_priority <= SH_LOG_PRIO_INFO;
 }
 
 void sh_log_set_debuggable(bool debuggable) {
 #ifdef SH_CONFIG_DEBUG
   (void)debuggable;
-  sh_log_priority = ANDROID_LOG_INFO;
+  sh_log_priority = SH_LOG_PRIO_INFO;
 #else
   if (__predict_false(debuggable))
-    sh_log_priority = ANDROID_LOG_INFO;
+    sh_log_priority = SH_LOG_PRIO_INFO;
   else
-    sh_log_priority = ANDROID_LOG_SILENT;
+    sh_log_priority = SH_LOG_PRIO_SILENT;
 #endif
+}
+
+void sh_log_print(sh_log_prio_t prio, const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+#ifdef __ANDROID__
+  __android_log_vprint((int)prio, SH_LOG_TAG, fmt, ap);
+#else
+  (void)prio;
+  char buf[1024];
+  int len = vsnprintf(buf, sizeof(buf) - 1, fmt, ap);
+  if (len > 0) {
+    size_t n = (size_t)len < sizeof(buf) - 1 ? (size_t)len : sizeof(buf) - 2;
+    buf[n] = '\n';
+    (void)!write(STDERR_FILENO, buf, n + 1);
+  }
+#endif
+  va_end(ap);
 }

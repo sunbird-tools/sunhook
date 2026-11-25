@@ -53,7 +53,9 @@ typedef struct {
   uintptr_t orig_addr;
 } sh_safe_addr_t;
 static sh_safe_addr_t sh_safe_addrs[SH_SAFE_IDX_SZ];
+#ifdef __ANDROID__
 static int sh_safe_api_level;
+#endif
 
 static int sh_safe_init_func(void *handle, const char *symbol, size_t idx) {
   sh_safe_addrs[idx].target_addr = (uintptr_t)(xdl_sym(handle, symbol, NULL));
@@ -63,10 +65,12 @@ static int sh_safe_init_func(void *handle, const char *symbol, size_t idx) {
 }
 
 int sh_safe_init(void) {
+#ifdef __ANDROID__
   sh_safe_api_level = sh_util_get_api_level();
+#endif
 
   // You can also use dlopen(), but dlopen() is more likely to have been hooked.
-  void *handle = sh_xdl_open("libc.so");
+  void *handle = sh_xdl_open(SH_UTIL_LIBC_NAME);
   if (NULL == handle || SH_XDL_CRASH == handle) return -1;
 
   int r = -1;
@@ -108,10 +112,8 @@ __attribute__((always_inline)) void *sh_safe_pthread_getspecific(pthread_key_t k
 }
 
 __attribute__((always_inline)) int sh_safe_pthread_setspecific(pthread_key_t key, const void *value) {
-  if (sh_safe_api_level >= __ANDROID_API_M__) {
-    uintptr_t addr = sh_safe_get_orig_addr(SH_SAFE_IDX_PTHREAD_SETSPECIFIC);
-    return ((int (*)(pthread_key_t, const void *))addr)(key, value);
-  } else {
+#ifdef __ANDROID__
+  if (sh_safe_api_level < __ANDROID_API_M__) {
     // Before Android M, pthread_setspecific() will call pthread_mutex_lock() and
     // pthread_mutex_unlock(). So if we use pthread_setspecific() in hub's trampo,
     // we will NOT be able to hook pthread_mutex_lock() and pthread_mutex_unlock().
@@ -131,6 +133,10 @@ __attribute__((always_inline)) int sh_safe_pthread_setspecific(pthread_key_t key
 #pragma clang diagnostic pop
     return 0;
   }
+#endif
+
+  uintptr_t addr = sh_safe_get_orig_addr(SH_SAFE_IDX_PTHREAD_SETSPECIFIC);
+  return ((int (*)(pthread_key_t, const void *))addr)(key, value);
 }
 
 __attribute__((always_inline)) int sh_safe_pthread_mutex_lock(pthread_mutex_t *mutex) {

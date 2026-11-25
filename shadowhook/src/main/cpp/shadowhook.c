@@ -566,14 +566,19 @@ void *shadowhook_dlsym_symtab(void *handle, const char *sym_name) {
 }
 
 static int shadowhook_check_callback(shadowhook_dl_info_t pre, shadowhook_dl_info_t post) {
+#ifndef __ANDROID__
+  (void)pre, (void)post;
+  return SHADOWHOOK_ERRNO_NOT_SUPPORT;
+#else
   int r;
   if (__predict_false(NULL == pre && NULL == post)) return SHADOWHOOK_ERRNO_INVALID_ARG;
 #ifdef SH_CONFIG_COMPATIBLE_WITH_ARM_ANDROID_4_X
-  if (__predict_false(sh_util_get_api_level() < __ANDROID_API_L__)) return SHADOWHOOK_ERRNO_NOT_SUPPORT;
+  if (__predict_false(!SH_UTIL_API_AT_LEAST(__ANDROID_API_L__))) return SHADOWHOOK_ERRNO_NOT_SUPPORT;
 #endif
   if (__predict_false(0 != (r = shadowhook_check_avail()))) return r;
 
   return 0;
+#endif
 }
 
 int shadowhook_register_dl_init_callback(shadowhook_dl_info_t pre, shadowhook_dl_info_t post, void *data) {

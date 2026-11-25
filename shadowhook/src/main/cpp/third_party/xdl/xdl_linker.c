@@ -32,6 +32,7 @@
 #include "xdl_iterate.h"
 #include "xdl_util.h"
 
+#ifdef __ANDROID__
 #define XDL_LINKER_SYM_MUTEX           "__dl__ZL10g_dl_mutex"
 #define XDL_LINKER_SYM_DLOPEN_EXT_N    "__dl__ZL10dlopen_extPKciPK17android_dlextinfoPv"
 #define XDL_LINKER_SYM_DO_DLOPEN_N     "__dl__Z9do_dlopenPKciPK17android_dlextinfoPv"
@@ -229,3 +230,8 @@ void *xdl_linker_force_dlopen(const char *filename) {
     return handle;
   }
 }
+#else
+void *xdl_linker_force_dlopen(const char *filename) {
+  return dlopen(filename, RTLD_NOW);
+}
+#endif

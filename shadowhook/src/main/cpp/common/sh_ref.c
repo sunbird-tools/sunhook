@@ -23,6 +23,7 @@
 
 #include "sh_ref.h"
 
+#include <limits.h>
 #include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>

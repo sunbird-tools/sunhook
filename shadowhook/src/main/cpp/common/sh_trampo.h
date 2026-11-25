@@ -22,6 +22,7 @@
 // Created by Kelun Cai (caikelun@bytedance.com) on 2021-04-11.
 
 #pragma once
+#include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/time.h>

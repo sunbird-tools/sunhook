@@ -75,6 +75,7 @@ typedef struct {
   size_t symbols_num;
 } sh_elf_useless_t;
 
+#ifdef __ANDROID__
 #define TO_STR_HELPER(x)         #x
 #define TO_STR(x)                TO_STR_HELPER(x)
 #define USELESS_ITEM(lib, array) {TO_STR(lib), array, sizeof(array) / sizeof(array[0])}
@@ -125,6 +126,7 @@ static sh_elf_useless_t sh_elf_useless[] = {
     USELESS_ITEM(libandroid_runtime.so, sh_elf_useless_libandroid_runtime)
 };
 // clang-format on
+#endif
 
 // ELF gap, range: [start, end)
 typedef struct {
@@ -303,6 +305,7 @@ static int sh_elf_get_gaps_from_phdr(sh_elf_t *self, sh_addr_info_t *addr_info) 
   return 0;
 }
 
+#ifdef __ANDROID__
 static void sh_elf_get_gaps_from_useless_symbols(sh_elf_t *self) {
   void *handle = sh_xdl_open(self->useless->lib_name);
   if (NULL == handle || SH_XDL_CRASH == handle) return;
@@ -342,6 +345,7 @@ static void sh_elf_get_gaps_from_useless_symbols(sh_elf_t *self) {
 end:
   if (NULL != handle) xdl_close(handle);
 }
+#endif
 
 static int sh_elf_create(sh_elf_t **self, sh_addr_info_t *addr_info) {
   *self = malloc(sizeof(sh_elf_t));
@@ -358,6 +362,7 @@ static int sh_elf_create(sh_elf_t **self, sh_addr_info_t *addr_info) {
   for (size_t i = 0; i < addr_info->dlpi_phnum; i++) {
     if (PT_LOAD == addr_info->dlpi_phdr[i].p_type) gaps_max++;
   }
+#ifdef __ANDROID__
   if (NULL != addr_info->dli_fname && '\0' != addr_info->dli_fname[0]) {
     for (size_t i = 0; i < sizeof(sh_elf_useless) / sizeof(sh_elf_useless[0]); i++) {
       sh_elf_useless_t *lib = &sh_elf_useless[i];
@@ -374,6 +379,7 @@ static int sh_elf_create(sh_elf_t **self, sh_addr_info_t *addr_info) {
       }
     }
   }
+#endif
 
   int r = 0;
   if (gaps_max > 0) {
@@ -498,6 +504,7 @@ static uintptr_t sh_elf_alloc_in_gaps(sh_elf_t *self, size_t size, uintptr_t ran
     if (0 != addr) return addr;  // OK
   }
 
+#ifdef __ANDROID__
   // lazy load all useless symbols gaps(only once), and try to alloc space again
   if (NULL != self->useless) {
     size_t gaps_num_old = self->gaps_num;
@@ -511,6 +518,7 @@ static uintptr_t sh_elf_alloc_in_gaps(sh_elf_t *self, size_t size, uintptr_t ran
       }
     }
   }
+#endif
 
   return 0;  // failed
 }

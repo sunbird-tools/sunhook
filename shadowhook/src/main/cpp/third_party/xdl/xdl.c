@@ -23,7 +23,9 @@
 
 #include "xdl.h"
 
+#ifdef __ANDROID__
 #include <android/api-level.h>
+#endif
 #include <elf.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -48,6 +50,14 @@
 
 #ifndef STT_GNU_IFUNC
 #define STT_GNU_IFUNC 10
+#endif
+
+#ifndef ELF_ST_TYPE
+#ifdef __LP64__
+#define ELF_ST_TYPE ELF64_ST_TYPE
+#else
+#define ELF_ST_TYPE ELF32_ST_TYPE
+#endif
 #endif
 
 #ifndef __LP64__
@@ -121,6 +131,15 @@ typedef struct xdl {
 static ElfW(Sym) *xdl_sym_by_addr(void *handle, void *addr);
 static ElfW(Sym) *xdl_dsym_by_addr(void *handle, void *addr);
 
+// glibc relocates these entries in place unless .dynamic is read-only (the vDSO). Bionic never does.
+static uintptr_t xdl_dyn_ptr(xdl_t *self, const ElfW(Dyn) *entry) {
+#ifdef __ANDROID__
+  return self->load_bias + entry->d_un.d_ptr;
+#else
+  return entry->d_un.d_ptr >= self->load_bias ? entry->d_un.d_ptr : self->load_bias + entry->d_un.d_ptr;
+#endif
+}
+
 // load from memory
 static void xdl_dynsym_load(xdl_t *self) {
   // find the dynamic segment
@@ -138,26 +157,26 @@ static void xdl_dynsym_load(xdl_t *self) {
   for (ElfW(Dyn) *entry = dynamic; entry && entry->d_tag != DT_NULL; entry++) {
     switch (entry->d_tag) {
       case DT_SYMTAB:  //.dynsym
-        self->dynsym = (ElfW(Sym) *)(self->load_bias + entry->d_un.d_ptr);
+        self->dynsym = (ElfW(Sym) *)(xdl_dyn_ptr(self, entry));
         break;
       case DT_STRTAB:  //.dynstr
-        self->dynstr = (const char *)(self->load_bias + entry->d_un.d_ptr);
+        self->dynstr = (const char *)(xdl_dyn_ptr(self, entry));
         break;
       case DT_STRSZ:  //.dynstr size
         self->dynstr_sz = (size_t)entry->d_un.d_val;
         break;
       case DT_HASH:  //.hash
-        self->sysv_hash.buckets_cnt = ((const uint32_t *)(self->load_bias + entry->d_un.d_ptr))[0];
-        self->sysv_hash.chains_cnt = ((const uint32_t *)(self->load_bias + entry->d_un.d_ptr))[1];
-        self->sysv_hash.buckets = &(((const uint32_t *)(self->load_bias + entry->d_un.d_ptr))[2]);
+        self->sysv_hash.buckets_cnt = ((const uint32_t *)(xdl_dyn_ptr(self, entry)))[0];
+        self->sysv_hash.chains_cnt = ((const uint32_t *)(xdl_dyn_ptr(self, entry)))[1];
+        self->sysv_hash.buckets = &(((const uint32_t *)(xdl_dyn_ptr(self, entry)))[2]);
         self->sysv_hash.chains = &(self->sysv_hash.buckets[self->sysv_hash.buckets_cnt]);
         break;
       case DT_GNU_HASH:  //.gnu.hash
-        self->gnu_hash.buckets_cnt = ((const uint32_t *)(self->load_bias + entry->d_un.d_ptr))[0];
-        self->gnu_hash.symoffset = ((const uint32_t *)(self->load_bias + entry->d_un.d_ptr))[1];
-        self->gnu_hash.bloom_cnt = ((const uint32_t *)(self->load_bias + entry->d_un.d_ptr))[2];
-        self->gnu_hash.bloom_shift = ((const uint32_t *)(self->load_bias + entry->d_un.d_ptr))[3];
-        self->gnu_hash.bloom = (const ElfW(Addr) *)(self->load_bias + entry->d_un.d_ptr + 16);
+        self->gnu_hash.buckets_cnt = ((const uint32_t *)(xdl_dyn_ptr(self, entry)))[0];
+        self->gnu_hash.symoffset = ((const uint32_t *)(xdl_dyn_ptr(self, entry)))[1];
+        self->gnu_hash.bloom_cnt = ((const uint32_t *)(xdl_dyn_ptr(self, entry)))[2];
+        self->gnu_hash.bloom_shift = ((const uint32_t *)(xdl_dyn_ptr(self, entry)))[3];
+        self->gnu_hash.bloom = (const ElfW(Addr) *)(xdl_dyn_ptr(self, entry) + 16);
         self->gnu_hash.buckets = (const uint32_t *)(&(self->gnu_hash.bloom[self->gnu_hash.bloom_cnt]));
         self->gnu_hash.chains = (const uint32_t *)(&(self->gnu_hash.buckets[self->gnu_hash.buckets_cnt]));
         break;
@@ -515,7 +534,7 @@ static xdl_t *xdl_find(const char *filename) {
 
   // from auxv (app_process)
   const char *basename, *pathname;
-#if (defined(__arm__) || defined(__i386__)) && __ANDROID_API__ < __ANDROID_API_L__
+#if defined(__ANDROID__) && (defined(__arm__) || defined(__i386__)) && __ANDROID_API__ < __ANDROID_API_L__
   if (xdl_util_get_api_level() < __ANDROID_API_L__) {
     basename = XDL_UTIL_APP_PROCESS_BASENAME_K;
     pathname = XDL_UTIL_APP_PROCESS_PATHNAME_K;
@@ -690,7 +709,7 @@ static void *xdl_resolve_symbol_address(xdl_t *self, ElfW(Sym) *sym, size_t *sym
   } else if (ELF_ST_TYPE(sym->st_info) == STT_GNU_IFUNC) {
     void *sym_addr = (void *)(self->load_bias + sym->st_value);
     void *real_sym_addr = NULL;
-    if (xdl_util_get_api_level() < __ANDROID_API_R__) {
+    if (!XDL_UTIL_API_AT_LEAST(__ANDROID_API_R__)) {
       // Android [4.x, 10]
       typedef void *(*ifunc_resolver_t)(void);
       real_sym_addr = ((ifunc_resolver_t)sym_addr)();

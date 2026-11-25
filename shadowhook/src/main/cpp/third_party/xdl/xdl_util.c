@@ -23,7 +23,9 @@
 
 #include "xdl_util.h"
 
+#ifdef __ANDROID__
 #include <android/api-level.h>
+#endif
 #include <ctype.h>
 #include <inttypes.h>
 #include <pthread.h>
@@ -61,6 +63,7 @@ size_t xdl_util_trim_ending(char *start) {
   return (size_t)(end - start);
 }
 
+#ifdef __ANDROID__
 static int xdl_util_get_api_level_from_build_prop(void) {
   char buf[128];
   int api_level = -1;
@@ -98,6 +101,7 @@ int xdl_util_get_api_level(void) {
   }
   return val;
 }
+#endif
 
 size_t xdl_util_get_pagesize(void) {
   static size_t pagesize = 0;

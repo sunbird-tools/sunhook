@@ -29,7 +29,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef __ANDROID__
 #include <sys/system_properties.h>
+#endif
 
 #include "queue.h"
 #include "sh_log.h"
@@ -41,6 +43,7 @@
 #include "shadowhook.h"
 #include "xdl.h"
 
+#ifdef __ANDROID__
 #if defined(__i386__)
 #define SH_LINKER_BASENAME           "linker"
 #define SH_LINKER_ABI_STR            "x86"
@@ -83,6 +86,7 @@ static bool sh_linker_soinfo_offset_scan_ok = false;
 #if SH_LINKER_HOOK_WITH_DL_MUTEX
 #define SH_LINKER_SYM_G_DL_MUTEX        "__dl__ZL10g_dl_mutex"
 #define SH_LINKER_SYM_G_DL_MUTEX_U_QPR2 "__dl_g_dl_mutex"
+#endif
 #endif
 
 // >= Android 5.0. soinfo::call_constructors() and soinfo::call_destructors() callbacks
@@ -237,6 +241,7 @@ end:
 }
 #endif
 
+#ifdef __ANDROID__
 // struct soinfo {
 //  // ......
 //  const ElfW(Phdr)* phdr;
@@ -690,8 +695,12 @@ end:
   xdl_close(handle);
   return r;
 }
+#endif
 
 int sh_linker_init(void) {
+#ifndef __ANDROID__
+  return 0;
+#else
   // only init for >= Android 5.0
 #ifdef SH_CONFIG_COMPATIBLE_WITH_ARM_ANDROID_4_X
   int api_level = sh_util_get_api_level();
@@ -705,6 +714,7 @@ int sh_linker_init(void) {
 
   // hook soinfo::call_constructors() and soinfo::call_destructors()
   return sh_linker_hook_call_ctors_dtors(&call_ctors_addr_info, &call_dtors_addr_info, g_dl_mutex);
+#endif
 }
 
 int sh_linker_register_dl_init_callback(shadowhook_dl_info_t pre, shadowhook_dl_info_t post, void *data) {
@@ -800,7 +810,7 @@ int sh_linker_get_addr_info_by_addr(sh_addr_info_t *addr_info, void *addr, bool 
   bool crashed = false;
   xdl_info_t dlinfo;
   memset(&dlinfo, 0, sizeof(xdl_info_t));
-  if (sh_util_get_api_level() >= __ANDROID_API_L__) {
+  if (SH_UTIL_API_AT_LEAST(__ANDROID_API_L__)) {
     r = xdl_addr4(addr, &dlinfo, &dlcache, ignore_sym_info ? XDL_NON_SYM : XDL_DEFAULT);
   } else {
     SH_SIG_TRY(SIGSEGV, SIGBUS) {
@@ -867,7 +877,12 @@ int sh_linker_get_addr_info_by_name(sh_addr_info_t *addr_info, const char *lib_n
   // open library
   void *handle = sh_xdl_open(lib_name);
   if (SH_XDL_CRASH == handle) return SHADOWHOOK_ERRNO_HOOK_DLOPEN_CRASH;
+#ifdef __ANDROID__
   if (NULL == handle) return SHADOWHOOK_ERRNO_PENDING;
+#else
+  // glibc builds have no load monitor, so a pending hook would never finish.
+  if (NULL == handle) return SHADOWHOOK_ERRNO_NOT_FOUND;
+#endif
 
   // get dlinfo
   xdl_info_t dlinfo;

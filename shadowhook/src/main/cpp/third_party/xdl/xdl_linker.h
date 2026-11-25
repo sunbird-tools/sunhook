@@ -28,8 +28,10 @@
 extern "C" {
 #endif
 
+#ifdef __ANDROID__
 void xdl_linker_lock(void);
 void xdl_linker_unlock(void);
+#endif
 
 void *xdl_linker_force_dlopen(const char *filename);
 

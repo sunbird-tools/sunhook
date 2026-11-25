@@ -23,7 +23,9 @@
 
 #include "xdl_iterate.h"
 
+#ifdef __ANDROID__
 #include <android/api-level.h>
+#endif
 #include <ctype.h>
 #include <dlfcn.h>
 #include <elf.h>
@@ -115,10 +117,15 @@ static int xdl_iterate_by_linker_cb(struct dl_phdr_info *info, size_t size, void
   int flags = (int)*pkg;
 
   // ignore invalid ELF
+#ifdef __ANDROID__
   if (0 == info->dlpi_addr || NULL == info->dlpi_name || '\0' == info->dlpi_name[0]) return 0;
+#else
+  // glibc names the main executable "" and gives a non-PIE one a zero load bias.
+  if (NULL == info->dlpi_name) return 0;
+#endif
 
   // ignore linker if we have returned it already
-  if (linker_load_bias == info->dlpi_addr) return 0;
+  if (0 != linker_load_bias && linker_load_bias == info->dlpi_addr) return 0;
 
   struct dl_phdr_info info_fixed;
   info_fixed.dlpi_addr = info->dlpi_addr;
@@ -137,7 +144,7 @@ static int xdl_iterate_by_linker_cb(struct dl_phdr_info *info, size_t size, void
     info->dlpi_phnum = ehdr->e_phnum;
   }
 
-#if __ANDROID_API__ <= __ANDROID_API_M__
+#if defined(__ANDROID__) && __ANDROID_API__ <= __ANDROID_API_M__
   // fix bug when android:extractNativeLibs="false" in Android 6.0
   char name_fixed[PATH_MAX];
   if (xdl_util_get_api_level() == __ANDROID_API_M__ && xdl_util_ends_with(info->dlpi_name, ".apk")) {
@@ -177,7 +184,8 @@ static int xdl_iterate_by_linker_cb(struct dl_phdr_info *info, size_t size, void
 #endif
 
   // fix dlpi_name (from /proc/self/maps)
-  if ('/' != info->dlpi_name[0] && '[' != info->dlpi_name[0] && (0 != (flags & XDL_FULL_PATHNAME))) {
+  if ('/' != info->dlpi_name[0] && '[' != info->dlpi_name[0] &&
+      (0 != (flags & XDL_FULL_PATHNAME) || '\0' == info->dlpi_name[0])) {
     // get base address
     uintptr_t min_vaddr = xdl_iterate_get_min_vaddr(info);
     if (UINTPTR_MAX == min_vaddr) return 0;  // ignore this ELF
@@ -194,6 +202,7 @@ static int xdl_iterate_by_linker_cb(struct dl_phdr_info *info, size_t size, void
   return cb(info, size, cb_arg);
 }
 
+#ifdef __ANDROID__
 static uintptr_t xdl_iterate_get_linker_base(void) {
   if (NULL == getauxval) return 0;
 
@@ -221,29 +230,37 @@ static int xdl_iterate_do_callback(xdl_iterate_phdr_cb_t cb, void *cb_arg, uintp
 
   return cb(&info, sizeof(struct dl_phdr_info), cb_arg);
 }
+#endif
 
 static int xdl_iterate_by_linker(xdl_iterate_phdr_cb_t cb, void *cb_arg, int flags) {
   if (NULL == dl_iterate_phdr) return 0;
 
-  int api_level = xdl_util_get_api_level();
   FILE *maps = NULL;
   int r;
+  uintptr_t linker_load_bias = 0;
+
+#ifdef __ANDROID__
+  int api_level = xdl_util_get_api_level();
 
   // dl_iterate_phdr(3) does NOT contain linker/linker64 when Android version < 8.1 (API level 27).
   // Here we always try to get linker base address from auxv.
-  uintptr_t linker_load_bias = 0;
   uintptr_t linker_base = xdl_iterate_get_linker_base();
   if (0 != linker_base) {
     if (0 !=
         (r = xdl_iterate_do_callback(cb, cb_arg, linker_base, XDL_UTIL_LINKER_PATHNAME, &linker_load_bias)))
       return r;
   }
+#endif
 
   // for other ELF
   uintptr_t pkg[5] = {(uintptr_t)cb, (uintptr_t)cb_arg, (uintptr_t)&maps, linker_load_bias, (uintptr_t)flags};
+#ifdef __ANDROID__
   if (__ANDROID_API_L__ == api_level || __ANDROID_API_L_MR1__ == api_level) xdl_linker_lock();
+#endif
   r = dl_iterate_phdr(xdl_iterate_by_linker_cb, pkg);
+#ifdef __ANDROID__
   if (__ANDROID_API_L__ == api_level || __ANDROID_API_L_MR1__ == api_level) xdl_linker_unlock();
+#endif
 
   if (NULL != maps) fclose(maps);
   return r;

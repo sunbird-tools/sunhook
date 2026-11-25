@@ -27,6 +27,7 @@
 
 #include <dlfcn.h>
 #include <errno.h>
+#include <limits.h>
 #include <pthread.h>
 #include <setjmp.h>
 #include <signal.h>
@@ -36,6 +37,8 @@
 #include <string.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+
+#include "sh_config.h"
 
 #define BYTESIG_DEBUG 0
 
@@ -49,6 +52,12 @@
 #define BYTESIG_LOG(fmt, ...)
 #endif
 
+#ifdef __ANDROID__
+#define BYTESIG_LIBC "libc.so"
+#else
+#define BYTESIG_LIBC "libc.so.6"
+#endif
+
 typedef enum {
   BYTESIG_STATUS_UNAVAILABLE = 0,
   BYTESIG_STATUS_SIG32 = 1,  // use sigset_t
@@ -56,23 +65,26 @@ typedef enum {
 } bytesig_status_t;
 static bytesig_status_t bytesig_status = BYTESIG_STATUS_UNAVAILABLE;
 
+#ifdef __ANDROID__
 extern __attribute((weak)) int sigfillset64(sigset64_t *);
 extern __attribute((weak)) int sigemptyset64(sigset64_t *);
 extern __attribute((weak)) int sigaddset64(sigset64_t *, int);
 extern __attribute((weak)) int sigismember64(const sigset64_t *, int);
 
 typedef int (*bytesig_sigaction64_t)(int, const struct sigaction64 *, struct sigaction64 *);
-typedef int (*bytesig_sigaction_t)(int, const struct sigaction *, struct sigaction *);
 typedef int (*bytesig_sigprocmask64_t)(int, const sigset64_t *, sigset64_t *);
+#endif
+typedef int (*bytesig_sigaction_t)(int, const struct sigaction *, struct sigaction *);
 typedef int (*bytesig_sigprocmask_t)(int, const sigset_t *, sigset_t *);
 
 static void *bytesig_sigaction;    // point to libc's sigaction64() or libc's sigaction()
 static void *bytesig_sigprocmask;  // point to libc's sigprocmask() or libc's sigprocmask64()
 
 __attribute__((constructor(101))) static void bytesig_ctor(void) {
-  void *libc = dlopen("libc.so", RTLD_LOCAL);
+  void *libc = dlopen(BYTESIG_LIBC, RTLD_LOCAL | RTLD_LAZY);
   if (__predict_false(NULL == libc)) return;
 
+#ifdef __ANDROID__
   if (__predict_true(NULL != sigfillset64 && NULL != sigemptyset64 && NULL != sigaddset64 &&
                      NULL != sigismember64)) {
     if (__predict_true(NULL != (bytesig_sigaction = dlsym(libc, "sigaction64")) &&
@@ -81,13 +93,16 @@ __attribute__((constructor(101))) static void bytesig_ctor(void) {
       goto end;
     }
   }
+#endif
 
   if (__predict_true(NULL != (bytesig_sigaction = dlsym(libc, "sigaction")) &&
                      NULL != (bytesig_sigprocmask = dlsym(libc, "sigprocmask")))) {
     bytesig_status = BYTESIG_STATUS_SIG32;
   }
 
+#ifdef __ANDROID__
 end:
+#endif
   dlclose(libc);
 }
 
@@ -99,7 +114,9 @@ typedef struct {
   pid_t tids[BYTESIG_PROTECTED_THREADS_MAX];         // atomic
   sigjmp_buf *jbufs[BYTESIG_PROTECTED_THREADS_MAX];  // atomic
   union {
+#ifdef __ANDROID__
     struct sigaction64 prev_action64;
+#endif
     struct sigaction prev_action;
   };
 } bytesig_signal_t;
@@ -108,11 +125,13 @@ typedef struct {
 // array index is signal number, corresponds to signals 1 to 31, except 9 and 19
 static bytesig_signal_t *bytesig_signal_array[__SIGRTMIN];
 
+#ifdef __ANDROID__
 static void bytesig_sigorset64(sigset64_t *dest, sigset64_t *left, sigset64_t *right) {
   sigemptyset64(dest);
   for (size_t i = 1; i < sizeof(sigset64_t) * CHAR_BIT; i++)
     if (sigismember64(left, (int)i) == 1 || sigismember64(right, (int)i) == 1) sigaddset64(dest, (int)i);
 }
+#endif
 
 static void bytesig_sigorset(sigset_t *dest, sigset_t *left, sigset_t *right) {
   sigemptyset(dest);
@@ -157,10 +176,13 @@ __attribute__((noinline)) static void bytesig_handler_internal(int signum, sigin
   } while (0)
 
   // set thread signal mask
-  if (BYTESIG_STATUS_SIG64 == bytesig_status)
+#ifdef __ANDROID__
+  if (BYTESIG_STATUS_SIG64 == bytesig_status) {
     SET_THREAD_SIGNAL_MASK(64);
-  else
-    SET_THREAD_SIGNAL_MASK();
+    return;
+  }
+#endif
+  SET_THREAD_SIGNAL_MASK();
 }
 
 // https://llvm.org/docs/CodeGenerator.html#tail-call-optimization
@@ -180,10 +202,13 @@ static void bytesig_handler(int signum, siginfo_t *siginfo, void *context) {
 
   // call previous signal handler
   bytesig_signal_t *sig = bytesig_signal_array[signum];
-  if (BYTESIG_STATUS_SIG64 == bytesig_status)
+#ifdef __ANDROID__
+  if (BYTESIG_STATUS_SIG64 == bytesig_status) {
     CALL_PREVIOUS_SIGNAL_HANDLER(64);
-  else
-    CALL_PREVIOUS_SIGNAL_HANDLER();
+    return;
+  }
+#endif
+  CALL_PREVIOUS_SIGNAL_HANDLER();
 }
 
 int bytesig_init(int signum) {
@@ -217,9 +242,11 @@ int bytesig_init(int signum) {
   } while (0)
 
   // register the signal handler, we start off with all signals blocked
+#ifdef __ANDROID__
   if (BYTESIG_STATUS_SIG64 == bytesig_status)
     REGISTER_SIGNAL_HANDLER(64);
   else
+#endif
     REGISTER_SIGNAL_HANDLER();
 
   bytesig_signal_array[signum] = sig;
