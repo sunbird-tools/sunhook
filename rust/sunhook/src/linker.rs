@@ -141,11 +141,9 @@ impl DlCallback {
       unregister: UnregisterFn,
    ) -> Result<Self, Error> {
       let data = NonNull::from(Box::leak(Box::new(callback)));
-      let errno = unsafe { register(Some(pre), Some(post), data.as_ptr().cast()) };
-
-      if let Err(err) = Error::check(errno) {
+      if unsafe { register(Some(pre), Some(post), data.as_ptr().cast()) } != 0 {
          drop(unsafe { Box::from_raw(data.as_ptr()) });
-         return Err(err);
+         return Err(Error::last());
       }
 
       Ok(Self { data, unregister })
@@ -154,7 +152,10 @@ impl DlCallback {
    /// After success no call is in flight. On failure the callback stays
    /// registered and allocated.
    pub fn unregister(self) -> Result<(), Error> {
-      Error::check(unsafe { (self.unregister)(Some(pre), Some(post), self.data.as_ptr().cast()) })?;
+      if unsafe { (self.unregister)(Some(pre), Some(post), self.data.as_ptr().cast()) } != 0 {
+         return Err(Error::last());
+      }
+
       drop(unsafe { Box::from_raw(self.data.as_ptr()) });
       Ok(())
    }
