@@ -60,6 +60,8 @@ typedef struct {
 #pragma clang diagnostic pop
 int sh_linker_get_addr_info_by_addr(sh_addr_info_t *addr_info, void *addr, bool is_sym_addr,
                                     bool is_proc_start, bool ignore_sym_info);
+// The covering symbol, or else at most 64 KB from addr up to the next symbol or the end of its segment.
+int sh_linker_get_code_bounds(uintptr_t addr, uintptr_t *start, size_t *len);
 int sh_linker_get_addr_info_by_name(sh_addr_info_t *addr_info, const char *lib_name, const char *sym_name);
 int sh_linker_get_addr_info_by_handle(sh_addr_info_t *addr_info, void **cached_handle,
                                       struct dl_phdr_info *info, const char *sym_name);

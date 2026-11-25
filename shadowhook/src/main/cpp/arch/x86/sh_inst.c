@@ -219,27 +219,14 @@ static int sh_inst_check_branches(sh_inst_t *self, uintptr_t target_addr, size_t
 
 static void sh_inst_get_func(uintptr_t target_addr, sh_addr_info_t *addr_info, uintptr_t *func,
                              size_t *func_len) {
-  *func = 0;
-  *func_len = 0;
-
-  sh_addr_info_t sym_info;
-  memset(&sym_info, 0, sizeof(sym_info));
-  sh_addr_info_t *info = addr_info;
-  if (NULL == info->dli_saddr) {
-    if (0 != sh_linker_get_addr_info_by_addr(&sym_info, (void *)target_addr, addr_info->is_sym_addr,
-                                             addr_info->is_proc_start, false))
-      goto end;
-    info = &sym_info;
-  }
-
-  uintptr_t start = (uintptr_t)info->dli_saddr;
-  if (start <= target_addr && target_addr < start + info->dli_ssize) {
+  uintptr_t start = (uintptr_t)addr_info->dli_saddr;
+  if (start <= target_addr && target_addr < start + addr_info->dli_ssize) {
     *func = start;
-    *func_len = info->dli_ssize;
+    *func_len = addr_info->dli_ssize;
+  } else if (0 != sh_linker_get_code_bounds(target_addr, func, func_len)) {
+    *func = 0;
+    *func_len = 0;
   }
-
-end:
-  sh_linker_free_addr_info(&sym_info);
 }
 
 static int sh_inst_write_exit(sh_inst_t *self, uintptr_t target_addr, const uint8_t *jmp, size_t jmp_len) {
@@ -345,7 +332,7 @@ int sh_inst_hook(sh_inst_t *self, uintptr_t target_addr, sh_addr_info_t *addr_in
   uintptr_t func;
   size_t func_len;
   sh_inst_get_func(target_addr, addr_info, &func, &func_len);
-  if (0 == func_len) SH_LOG_WARN("x86: no symbol bounds for %" PRIxPTR ", branches unchecked", target_addr);
+  if (0 == func_len) SH_LOG_WARN("x86: no code bounds for %" PRIxPTR ", branches unchecked", target_addr);
 
   int r = -1;
 #ifdef SH_CONFIG_TRY_HOOK_WITH_ISLAND

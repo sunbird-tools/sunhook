@@ -356,8 +356,10 @@ static int sh_inst_rewrite_without_island(sh_inst_t *self, uintptr_t target_addr
     if (resume_len < self->backup_len) return SHADOWHOOK_ERRNO_HOOK_SYMSZ;
   }
 
-  if (NULL != sym->dli_saddr) {
-    int r = sh_inst_check_branches(target_addr, self->backup_len, (uintptr_t)sym->dli_saddr, sym->dli_ssize);
+  uintptr_t func = (uintptr_t)sym->dli_saddr;
+  size_t func_len = sym->dli_ssize;
+  if (NULL != sym->dli_saddr || 0 == sh_linker_get_code_bounds(target_addr, &func, &func_len)) {
+    int r = sh_inst_check_branches(target_addr, self->backup_len, func, func_len);
     if (0 != r) return r;
   }
 

@@ -995,6 +995,42 @@ static ElfW(Sym) *xdl_dsym_by_addr(void *handle, void *addr) {
   return NULL;
 }
 
+static void xdl_sym_next_update(ElfW(Sym) *sym, uintptr_t offset, bool is_symtab, uintptr_t *next) {
+  if (is_symtab ? !XDL_SYMTAB_IS_EXPORT_SYM(sym->st_shndx) : !XDL_DYNSYM_IS_EXPORT_SYM(sym->st_shndx)) return;
+  if (ELF_ST_TYPE(sym->st_info) == STT_TLS) return;
+  uintptr_t value = sym->st_value;
+#if defined(__arm__) && defined(__thumb__)
+  value &= ~(uintptr_t)1;
+#endif
+  if (offset < value && value < *next) *next = value;
+}
+
+static void *xdl_next_sym_addr(xdl_t *self, void *addr) {
+  uintptr_t offset = (uintptr_t)addr - self->load_bias;
+  uintptr_t next = UINTPTR_MAX;
+
+  xdl_ensure_dynsym_loaded(self);
+  if (NULL != self->dynsym && self->gnu_hash.buckets_cnt > 0) {
+    const uint32_t *chains_all = self->gnu_hash.chains - self->gnu_hash.symoffset;
+    for (size_t i = 0; i < self->gnu_hash.buckets_cnt; i++) {
+      uint32_t n = self->gnu_hash.buckets[i];
+      if (n < self->gnu_hash.symoffset) continue;
+      do {
+        xdl_sym_next_update(self->dynsym + n, offset, false, &next);
+      } while ((chains_all[n++] & 1) == 0);
+    }
+  } else if (NULL != self->dynsym) {
+    for (size_t i = 0; i < self->sysv_hash.chains_cnt; i++)
+      xdl_sym_next_update(self->dynsym + i, offset, false, &next);
+  }
+
+  xdl_ensure_symtab_loaded(self);
+  for (size_t i = 0; NULL != self->symtab && i < self->symtab_cnt; i++)
+    xdl_sym_next_update(self->symtab + i, offset, true, &next);
+
+  return UINTPTR_MAX == next ? NULL : (void *)(self->load_bias + next);
+}
+
 int xdl_addr(void *addr, xdl_info_t *info, void **cache) {
   return xdl_addr4(addr, info, cache, XDL_DEFAULT);
 }
@@ -1043,6 +1079,8 @@ int xdl_addr4(void *addr, xdl_info_t *info, void **cache, int flags) {
         info->dli_sname = "strtab_out_of_bounds_error";
       info->dli_saddr = (void *)(handle->load_bias + sym->st_value);
       info->dli_ssize = sym->st_size;
+    } else {
+      info->dli_snext = xdl_next_sym_addr(handle, addr);
     }
   }
 
@@ -1080,5 +1118,6 @@ int xdl_info(void *handle, int request, void *info) {
   dlinfo->dli_ssize = 0;
   dlinfo->dlpi_phdr = self->dlpi_phdr;
   dlinfo->dlpi_phnum = (size_t)self->dlpi_phnum;
+  dlinfo->dli_snext = NULL;
   return 0;
 }

@@ -870,6 +870,47 @@ end:
   return r;
 }
 
+int sh_linker_get_code_bounds(uintptr_t addr, uintptr_t *start, size_t *len) {
+  int r = -1;
+  void *dlcache = NULL;
+  xdl_info_t dlinfo;
+  memset(&dlinfo, 0, sizeof(xdl_info_t));
+  SH_SIG_TRY(SIGSEGV, SIGBUS) {
+    r = xdl_addr4((void *)addr, &dlinfo, &dlcache, XDL_DEFAULT) ? 0 : -1;
+  }
+  SH_SIG_CATCH() {
+    r = -1;
+  }
+  SH_SIG_EXIT
+  if (0 != r || NULL == dlinfo.dli_fbase) goto end;
+
+  uintptr_t sym = (uintptr_t)dlinfo.dli_saddr;
+  if (sym <= addr && addr < sym + dlinfo.dli_ssize) {
+    *start = sym;
+    *len = dlinfo.dli_ssize;
+    goto end;
+  }
+
+  r = -1;
+  for (size_t i = 0; i < dlinfo.dlpi_phnum; i++) {
+    const ElfW(Phdr) *phdr = &dlinfo.dlpi_phdr[i];
+    uintptr_t seg = (uintptr_t)dlinfo.dli_fbase + phdr->p_vaddr;
+    if (PT_LOAD != phdr->p_type || !(phdr->p_flags & PF_X) || addr < seg || seg + phdr->p_memsz <= addr)
+      continue;
+    uintptr_t end = seg + phdr->p_memsz;
+    if (end - addr > 0x10000) end = addr + 0x10000;
+    if (NULL != dlinfo.dli_snext && (uintptr_t)dlinfo.dli_snext < end) end = (uintptr_t)dlinfo.dli_snext;
+    *start = addr;
+    *len = end - addr;
+    r = 0;
+    break;
+  }
+
+end:
+  xdl_addr_clean(&dlcache);
+  return r;
+}
+
 int sh_linker_get_addr_info_by_name(sh_addr_info_t *addr_info, const char *lib_name, const char *sym_name) {
   sh_linker_free_addr_info(addr_info);
   memset(addr_info, 0, sizeof(sh_addr_info_t));
