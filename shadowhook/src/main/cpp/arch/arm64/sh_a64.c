@@ -204,6 +204,15 @@ static size_t sh_a64_rewrite_b(uint32_t *buf, uint32_t inst, uintptr_t pc, sh_a6
     buf[idx++] = (inst & 0xFF00001F) | 0x40u;                  // B.<cond> #8
     buf[idx++] = use_branch_island ? 0x14000007 : 0x14000006;  // B #28 _or_ B #24
   }
+  if (type == BL && !use_branch_island) {
+    // BTI faults BLR into a PLT stub without a landing pad, so set LR by hand and RET there.
+    buf[idx++] = 0x58000071;  // LDR X17, #12
+    buf[idx++] = 0x1000009e;  // ADR X30, #16
+    buf[idx++] = 0xd65f0220;  // RET X17
+    buf[idx++] = addr & 0xFFFFFFFF;
+    buf[idx++] = addr >> 32u;
+    return idx * 4;  // 20
+  }
   if (use_branch_island) buf[idx++] = 0xa93f47f0;  // STP X16, X17, [SP, #-0x10]
   buf[idx++] = 0x58000051;                         // LDR X17, #8
   buf[idx++] = 0x14000003;                         // B #12
@@ -212,7 +221,7 @@ static size_t sh_a64_rewrite_b(uint32_t *buf, uint32_t inst, uintptr_t pc, sh_a6
   if (type == BL)
     buf[idx++] = 0xD63F0220;  // BLR X17
   else
-    buf[idx++] = 0xD61F0220;  // BR X17
+    buf[idx++] = 0xd65f0220;  // RET X17
   return idx * 4;             // 20(24) or 28(32)
 }
 
@@ -305,7 +314,7 @@ static size_t sh_a64_rewrite_cb(uint32_t *buf, uint32_t inst, uintptr_t pc, sh_a
     buf[idx++] = 0x14000005;  // B #20
   }
   buf[idx++] = 0x58000051;  // LDR X17, #8
-  buf[idx++] = 0xd61f0220;  // BR X17
+  buf[idx++] = 0xd65f0220;  // RET X17
   buf[idx++] = addr & 0xFFFFFFFF;
   buf[idx++] = addr >> 32u;
   return idx * 4;  // 24(28);
@@ -332,7 +341,7 @@ static size_t sh_a64_rewrite_tb(uint32_t *buf, uint32_t inst, uintptr_t pc, sh_a
     buf[idx++] = 0x14000005;  // B #20
   }
   buf[idx++] = 0x58000051;  // LDR X17, #8
-  buf[idx++] = 0xd61f0220;  // BR X17
+  buf[idx++] = 0xd65f0220;  // RET X17
   buf[idx++] = addr & 0xFFFFFFFF;
   buf[idx++] = addr >> 32u;
   return idx * 4;  // 24(28);
