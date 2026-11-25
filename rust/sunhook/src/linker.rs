@@ -104,7 +104,7 @@ unsafe impl Sync for DlCallback {}
 
 impl DlCallback {
    /// Runs `callback` around every ELF's constructors. Requires Android 5.0 on
-   /// arm32.
+   /// arm32, and fails with [`Error::NotSupported`] on Linux.
    ///
    /// The linker holds a lock shared with [`unregister`](Self::unregister) while it runs
    /// callbacks, so unregistering from inside one deadlocks.
@@ -120,7 +120,7 @@ impl DlCallback {
    }
 
    /// Runs `callback` around every ELF's destructors. Requires Android 5.0 on
-   /// arm32.
+   /// arm32, and fails with [`Error::NotSupported`] on Linux.
    ///
    /// The linker holds a lock shared with [`unregister`](Self::unregister) while it runs
    /// callbacks, so unregistering from inside one deadlocks.

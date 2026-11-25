@@ -31,11 +31,13 @@ fn main() {
    println!("cargo:rerun-if-changed={}", src.display());
 
    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+   let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap();
    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
-   assert!(
-      target_os == "android",
-      "sunhook only supports Android, not {target_os}"
-   );
+   let android = match (target_os.as_str(), target_env.as_str()) {
+      ("android", _) => true,
+      ("linux", "gnu") => false,
+      _ => panic!("sunhook only supports Android and glibc Linux, not {target_os} {target_env}"),
+   };
 
    let arch = match target_arch.as_str() {
       "aarch64" => "arm64",
@@ -59,6 +61,11 @@ fn main() {
       build.include(src.join(include));
    }
 
+   if !android {
+      // gcc turns the 16-byte instruction write into a libatomic call that may take a lock.
+      build.compiler("clang").define("_GNU_SOURCE", None);
+   }
+
    // sh_jni.c defines JNI_OnLoad, which would collide with the embedding
    // library's own.
    let top_level = sources(&src, &["c"])
@@ -72,11 +79,13 @@ fn main() {
       .files(sources(&src.join("third_party/xdl"), &["c"]))
       .compile("shadowhook");
 
-   println!("cargo:rustc-link-lib=log");
    println!("cargo:include={}", src.join("include").display());
-   link_compiler_rt();
 
-   build_nothing(&src);
+   if android {
+      println!("cargo:rustc-link-lib=log");
+      link_compiler_rt();
+      build_nothing(&src);
+   }
 }
 
 /// shadowhook calls `__clear_cache`, which Rust's `compiler_builtins` does not

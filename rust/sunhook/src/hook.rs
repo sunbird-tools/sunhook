@@ -143,7 +143,8 @@ pub struct Hook {
 
 impl Hook {
    /// Whether the target library was not loaded yet, so the hook waits for the
-   /// linker.
+   /// linker. Always false on Linux, where an unloaded library fails with
+   /// [`Error::NotFound`].
    #[must_use]
    pub const fn is_pending(&self) -> bool {
       self.stub.pending

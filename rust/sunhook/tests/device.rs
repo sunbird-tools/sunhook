@@ -381,6 +381,7 @@ const extern "C" fn zlib_version_proxy() -> *const c_char {
 }
 
 #[test]
+#[cfg_attr(not(target_os = "android"), ignore = "glibc builds have no load monitor")]
 fn pending_sym_name_hooks_on_dlopen() {
    init();
    assert!(
@@ -421,6 +422,7 @@ fn pending_sym_name_hooks_on_dlopen() {
 }
 
 #[test]
+#[cfg_attr(not(target_os = "android"), ignore = "glibc builds have no load monitor")]
 fn dl_callbacks_see_load_and_unload() {
    init();
    assert!(
