@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "sh_fixup.h"
 #include "sh_island.h"
 #include "sh_linker.h"
 #include "sh_recorder.h"
@@ -14,8 +15,8 @@ typedef struct {
   size_t enter_len;
   sh_island_t island_exit;  // .size = 16
   size_t fixup_cnt;
-  uint16_t fixup_offs[16];      // instructions that start inside the exit jump
-  uint16_t fixup_new_offs[16];  // where each of them sits in the enter
+  uintptr_t fixup_from[SH_FIXUP_MAX];  // instructions that start inside the exit jump
+  uintptr_t fixup_to[SH_FIXUP_MAX];    // where each of them sits in the enter
 } sh_inst_t;
 
 typedef void (*sh_inst_set_orig_addr_t)(uintptr_t orig_addr, void *arg);

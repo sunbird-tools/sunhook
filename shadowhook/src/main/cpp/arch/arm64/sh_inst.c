@@ -32,6 +32,7 @@
 #include "sh_a64.h"
 #include "sh_config.h"
 #include "sh_enter.h"
+#include "sh_fixup.h"
 #include "sh_island.h"
 #include "sh_linker.h"
 #include "sh_log.h"
@@ -132,8 +133,14 @@ static int sh_inst_rewrite(sh_inst_t *self, uintptr_t target_addr, sh_addr_info_
   }
 
   // rewrite original instructions (fill in enter)
+  self->fixup_cnt = 0;
   uintptr_t pc = target_addr;
   for (uintptr_t i = 0; i < self->backup_len; i += 4, pc += 4) {
+    if (i > 0) {
+      self->fixup_from[self->fixup_cnt] = pc;
+      self->fixup_to[self->fixup_cnt] = self->enter + rinfo.buf_offset;
+      self->fixup_cnt++;
+    }
     size_t offset = sh_a64_rewrite((uint32_t *)(self->enter + rinfo.buf_offset),
                                    *((uint32_t *)(target_addr + i)), pc, &rinfo);
     if (0 == offset) return SHADOWHOOK_ERRNO_HOOK_REWRITE_FAILED;
@@ -378,8 +385,12 @@ static int sh_inst_reloc_without_island(sh_inst_t *self, uintptr_t target_addr, 
     }
   }
 
-  int r;
-  if (0 != (r = sh_util_write_inst(target_addr, new_exit, self->backup_len))) return r;
+  // A thread inside an old exit has no matching enter instruction, so a rehook parks nobody.
+  if (!is_rehook) sh_fixup_stop();
+  int r = sh_util_write_inst(target_addr, new_exit, self->backup_len);
+  if (!is_rehook)
+    sh_fixup_resume(self->fixup_from, self->fixup_to, 0 == r ? self->fixup_cnt : 0);
+  if (0 != r) return r;
   memcpy(self->exit, new_exit, self->backup_len);
 
   sh_inst_record(self, target_addr, addr_info, new_addr, is_rehook, trace);
@@ -464,7 +475,15 @@ int sh_inst_unhook(sh_inst_t *self, uintptr_t target_addr, uintptr_t load_bias) 
   }
   SH_SIG_EXIT
   if (0 != r) return SHADOWHOOK_ERRNO_UNHOOK_TRAMPO_MISMATCH;
-  if (0 != (r = sh_util_write_inst(target_addr, self->backup, self->backup_len))) return r;
+
+  // A thread past the first exit instruction has run only STP or NOP, until the BR it is about to take.
+  bool multi = self->backup_len > 4;
+  uintptr_t from[2] = {target_addr + 4, target_addr + 8};
+  uintptr_t to[2] = {target_addr, (uintptr_t)self->exit[3] | ((uintptr_t)self->exit[4] << 32u)};
+  if (multi) sh_fixup_stop();
+  r = sh_util_write_inst(target_addr, self->backup, self->backup_len);
+  if (multi) sh_fixup_resume(from, to, 0 == r ? 2 : 0);
+  if (0 != r) return r;
 
   // free memory space for island-exit and island-enter
   if (0 != self->island_exit.addr) sh_island_free(&self->island_exit, load_bias);

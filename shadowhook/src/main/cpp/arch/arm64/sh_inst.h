@@ -38,6 +38,9 @@ typedef struct {
   sh_island_t island_exit;     // .size = 16 or 20
   sh_island_t island_enter;    // .size = 8
   sh_island_t island_rewrite;  // .size = 8
+  size_t fixup_cnt;
+  uintptr_t fixup_from[6];  // backup instructions after the first one
+  uintptr_t fixup_to[6];    // where each of them sits in the enter
 } sh_inst_t;
 
 typedef void (*sh_inst_set_orig_addr_t)(uintptr_t orig_addr, void *arg);

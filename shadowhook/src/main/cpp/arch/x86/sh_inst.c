@@ -1,17 +1,14 @@
 #include "sh_inst.h"
 
-#include <errno.h>
-#include <fcntl.h>
 #include <inttypes.h>
-#include <pthread.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
-#include <ucontext.h>
 
 #include "sh_config.h"
 #include "sh_enter.h"
+#include "sh_fixup.h"
 #include "sh_island.h"
 #include "sh_linker.h"
 #include "sh_log.h"
@@ -22,18 +19,12 @@
 #include "sh_x86.h"
 #include "shadowhook.h"
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wcast-align"
-#include "linux_syscall_support_android_ext.h"
-#pragma clang diagnostic pop
-
 #define SH_INST_ISLAND_SIZE     16
 #define SH_INST_ISLAND_ADDR_OFF 8
 #define SH_INST_INSTS_MAX       32
 
 #ifdef SH_X86_MODE32
-#define SH_INST_ARCH   "x86"
-#define SH_INST_REG_IP REG_EIP
+#define SH_INST_ARCH "x86"
 #define SH_INST_ISLAND_JMP(island)  \
   {0xFF,                            \
    0x25,                            \
@@ -58,7 +49,6 @@ static uintptr_t sh_inst_range_high(uintptr_t pc) {
 #define SH_INST_REL32_RANGE 0x7FFF0000
 
 #define SH_INST_ARCH               "x86_64"
-#define SH_INST_REG_IP             REG_RIP
 #define SH_INST_ISLAND_JMP(island) {0xFF, 0x25, 0x02, 0x00, 0x00, 0x00, 0xCC, 0xCC}
 
 static uintptr_t sh_inst_range_low(uintptr_t pc) {
@@ -170,8 +160,8 @@ static int sh_inst_rewrite(sh_inst_t *self, uintptr_t target_addr, size_t needed
 
   self->fixup_cnt = 0;
   for (size_t i = 1; i < cnt && offs[i] < needed; i++) {
-    self->fixup_offs[self->fixup_cnt] = (uint16_t)offs[i];
-    self->fixup_new_offs[self->fixup_cnt] = (uint16_t)new_offs[i];
+    self->fixup_from[self->fixup_cnt] = target_addr + offs[i];
+    self->fixup_to[self->fixup_cnt] = self->enter + new_offs[i];
     self->fixup_cnt++;
   }
 
@@ -257,7 +247,10 @@ static int sh_inst_write_exit(sh_inst_t *self, uintptr_t target_addr, const uint
   memcpy(exit, self->backup, self->backup_len);
   memcpy(exit, jmp, jmp_len);
 
+  if (self->fixup_cnt > 0) sh_fixup_stop();
   int r = sh_util_write_inst(target_addr, exit, jmp_len);
+  if (self->fixup_cnt > 0)
+    sh_fixup_resume(self->fixup_from, self->fixup_to, 0 == r ? self->fixup_cnt : 0);
   if (0 != r) return r;
   memcpy(self->exit, exit, self->backup_len);
   return 0;
@@ -312,108 +305,6 @@ static int sh_inst_reloc_without_island(sh_inst_t *self, uintptr_t target_addr, 
 }
 #endif
 
-#define SH_INST_FIXUP_WAIT_NS 50000000
-
-static pthread_mutex_t sh_inst_fixup_lock = PTHREAD_MUTEX_INITIALIZER;
-static uint32_t sh_inst_fixup_seq;  // odd while a fixup is running
-static uintptr_t sh_inst_fixup_from[16];
-static uintptr_t sh_inst_fixup_to[16];
-static size_t sh_inst_fixup_cnt;
-static size_t sh_inst_fixup_acks;
-static struct kernel_sigaction sh_inst_fixup_old;
-static bool sh_inst_fixup_installed;
-
-static void sh_inst_fixup_handler(int signum, siginfo_t *info, void *uc) {
-  uint32_t seq = __atomic_load_n(&sh_inst_fixup_seq, __ATOMIC_ACQUIRE);
-
-  // A late signal after a timeout, or one the app sent.
-  if (0 == (seq & 1)) {
-    if (sh_inst_fixup_old.sa_flags & SA_SIGINFO) {
-      if (NULL != sh_inst_fixup_old.sa_sigaction_) sh_inst_fixup_old.sa_sigaction_(signum, info, uc);
-    } else if (SIG_DFL != sh_inst_fixup_old.sa_handler_ && SIG_IGN != sh_inst_fixup_old.sa_handler_) {
-      sh_inst_fixup_old.sa_handler_(signum);
-    }
-    return;
-  }
-
-  greg_t *rip = &((ucontext_t *)uc)->uc_mcontext.gregs[SH_INST_REG_IP];
-  for (size_t i = 0; i < sh_inst_fixup_cnt; i++) {
-    if ((uintptr_t)*rip != sh_inst_fixup_from[i]) continue;
-    if (seq == __atomic_load_n(&sh_inst_fixup_seq, __ATOMIC_ACQUIRE)) *rip = (greg_t)sh_inst_fixup_to[i];
-    break;
-  }
-  __atomic_add_fetch(&sh_inst_fixup_acks, 1, __ATOMIC_RELEASE);
-}
-
-static int64_t sh_inst_fixup_now(void) {
-  struct kernel_timespec ts;
-  sys_clock_gettime(CLOCK_MONOTONIC, &ts);
-  return (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
-}
-
-// Moves threads stopped inside the patched bytes to the same instruction in the enter. Raw
-// syscalls avoid libc functions that may have just been hooked. A thread that misses the
-// deadline still has the signal pending, so the handler then stays installed.
-static void sh_inst_fixup_threads(sh_inst_t *self, uintptr_t target_addr) {
-  if (0 == self->fixup_cnt) return;
-
-  int saved_errno = errno;
-  sh_safe_pthread_mutex_lock(&sh_inst_fixup_lock);
-
-  for (size_t i = 0; i < self->fixup_cnt; i++) {
-    sh_inst_fixup_from[i] = target_addr + self->fixup_offs[i];
-    sh_inst_fixup_to[i] = self->enter + self->fixup_new_offs[i];
-  }
-  sh_inst_fixup_cnt = self->fixup_cnt;
-  __atomic_store_n(&sh_inst_fixup_acks, 0, __ATOMIC_RELAXED);
-  __atomic_add_fetch(&sh_inst_fixup_seq, 1, __ATOMIC_RELEASE);
-
-  int signum = SIGRTMAX;
-  if (!sh_inst_fixup_installed) {
-    struct kernel_sigaction act;
-    memset(&act, 0, sizeof(act));
-    act.sa_sigaction_ = sh_inst_fixup_handler;
-    act.sa_flags = SA_SIGINFO | SA_RESTART | SA_ONSTACK;
-    if (0 != sys_sigaction(signum, &act, &sh_inst_fixup_old)) goto end;
-    sh_inst_fixup_installed = true;
-  }
-
-  pid_t pid = sys_getpid();
-  pid_t self_tid = sys__gettid();
-  size_t sent = 0;
-  int fd = sys_open("/proc/self/task", O_RDONLY | O_DIRECTORY | O_CLOEXEC, 0);
-  if (fd >= 0) {
-    char buf[4096];
-    int n;
-    while ((n = sys_getdents64(fd, (struct kernel_dirent64 *)(void *)buf, sizeof(buf))) > 0) {
-      for (int pos = 0; pos < n;) {
-        struct kernel_dirent64 *dirent = (struct kernel_dirent64 *)(void *)(buf + pos);
-        pos += dirent->d_reclen;
-        pid_t tid = 0;
-        for (const char *c = dirent->d_name; '0' <= *c && *c <= '9'; c++)
-          tid = tid * 10 + (*c - '0');
-        if (tid <= 0 || tid == self_tid) continue;
-        if (0 == sys_tgkill(pid, tid, signum)) sent++;
-      }
-    }
-    sys_close(fd);
-  }
-
-  int64_t deadline = sh_inst_fixup_now() + SH_INST_FIXUP_WAIT_NS;
-  while (__atomic_load_n(&sh_inst_fixup_acks, __ATOMIC_ACQUIRE) < sent && sh_inst_fixup_now() < deadline)
-    sys_sched_yield();
-  size_t acks = __atomic_load_n(&sh_inst_fixup_acks, __ATOMIC_ACQUIRE);
-
-  if (acks >= sent && 0 == sys_sigaction(signum, &sh_inst_fixup_old, NULL)) sh_inst_fixup_installed = false;
-  if (acks < sent)
-    SH_LOG_WARN("x86: %zu of %zu threads answered the fixup for %" PRIxPTR, acks, sent, target_addr);
-
-end:
-  __atomic_add_fetch(&sh_inst_fixup_seq, 1, __ATOMIC_RELEASE);
-  sh_safe_pthread_mutex_unlock(&sh_inst_fixup_lock);
-  errno = saved_errno;
-}
-
 // Relocated rip-relative operands keep their disp32, so the enter has to reach each destination.
 static void sh_inst_enter_range(uintptr_t target_addr, uintptr_t *low, uintptr_t *high) {
   volatile uintptr_t lo = target_addr, hi = target_addr;
@@ -462,7 +353,6 @@ int sh_inst_hook(sh_inst_t *self, uintptr_t target_addr, sh_addr_info_t *addr_in
                                      set_orig_addr_arg)) &&
       0 == (r = sh_inst_check_branches(self, target_addr, SH_X86_REL_JMP_LEN, func, func_len)) &&
       0 == (r = sh_inst_reloc_with_island(self, target_addr, addr_info, new_addr, false, trace))) {
-    sh_inst_fixup_threads(self, target_addr);
     return 0;
   }
 #endif
@@ -473,7 +363,6 @@ int sh_inst_hook(sh_inst_t *self, uintptr_t target_addr, sh_addr_info_t *addr_in
                                        set_orig_addr_arg)) &&
         0 == (r = sh_inst_check_branches(self, target_addr, SH_X86_ABS_JMP_LEN, func, func_len)) &&
         0 == (r = sh_inst_reloc_without_island(self, target_addr, new_addr, false, trace))) {
-      sh_inst_fixup_threads(self, target_addr);
       return 0;
     }
   }
