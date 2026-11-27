@@ -113,6 +113,9 @@ static int sh_inst_rewrite(sh_inst_t *self, uintptr_t target_addr, sh_addr_info_
   // backup original instructions (length: 4 or 16 or 24)
   memcpy((void *)(self->backup), (void *)target_addr, self->backup_len);
 
+  // Assembled here because trampoline memory may be write-protected.
+  uint32_t enter[SH_ENTER_SZ / 4];
+
   // package the information passed to rewrite
   sh_a64_rewrite_info_t rinfo;
   rinfo.start_addr = target_addr;
@@ -128,7 +131,7 @@ static int sh_inst_rewrite(sh_inst_t *self, uintptr_t target_addr, sh_addr_info_
   rinfo.resume_ip_x16 = false;
 
   if (!addr_info->is_proc_start) {
-    rinfo.buf_offset += sh_a64_restore_ip((uint32_t *)self->enter);
+    rinfo.buf_offset += sh_a64_restore_ip(enter);
     rinfo.inst_prolog_len = rinfo.buf_offset;
   }
 
@@ -141,21 +144,18 @@ static int sh_inst_rewrite(sh_inst_t *self, uintptr_t target_addr, sh_addr_info_
       self->fixup_to[self->fixup_cnt] = self->enter + rinfo.buf_offset;
       self->fixup_cnt++;
     }
-    size_t offset = sh_a64_rewrite((uint32_t *)(self->enter + rinfo.buf_offset),
-                                   *((uint32_t *)(target_addr + i)), pc, &rinfo);
+    size_t offset =
+        sh_a64_rewrite(&enter[rinfo.buf_offset / 4], *((uint32_t *)(target_addr + i)), pc, &rinfo);
     if (0 == offset) return SHADOWHOOK_ERRNO_HOOK_REWRITE_FAILED;
     rinfo.buf_offset += offset;
   }
 
   // absolute jump back to remaining original instructions (fill in enter)
   if (addr_info->is_proc_start)
-    rinfo.buf_offset +=
-        sh_a64_absolute_jump_with_ret_ip((uint32_t *)(self->enter + rinfo.buf_offset), resume_addr,
-                                         &rinfo);
+    rinfo.buf_offset += sh_a64_absolute_jump_with_ret_ip(&enter[rinfo.buf_offset / 4], resume_addr, &rinfo);
   else
-    rinfo.buf_offset +=
-        sh_a64_absolute_jump_with_ret_rx((uint32_t *)(self->enter + rinfo.buf_offset), resume_addr);
-  sh_util_clear_cache(self->enter, rinfo.buf_offset);
+    rinfo.buf_offset += sh_a64_absolute_jump_with_ret_rx(&enter[rinfo.buf_offset / 4], resume_addr);
+  sh_util_write_jit(self->enter, enter, rinfo.buf_offset);
   self->enter_len = rinfo.buf_offset;
 
   // save original function address
@@ -166,8 +166,10 @@ static int sh_inst_rewrite(sh_inst_t *self, uintptr_t target_addr, sh_addr_info_
 static int sh_inst_safe_rewrite(sh_inst_t *self, uintptr_t target_addr, sh_addr_info_t *addr_info,
                                 uintptr_t resume_addr, sh_inst_set_orig_addr_t set_orig_addr,
                                 void *set_orig_addr_arg) {
+#ifndef __APPLE__
   if (0 != sh_util_mprotect(target_addr, self->backup_len, PROT_READ | PROT_WRITE | PROT_EXEC))
     return SHADOWHOOK_ERRNO_MPROT;
+#endif
 
   int r;
   SH_SIG_TRY(SIGSEGV, SIGBUS) {
@@ -205,10 +207,10 @@ static int sh_inst_rewrite_with_island(sh_inst_t *self, uintptr_t target_addr, s
     if (0 == self->island_enter.addr) return SHADOWHOOK_ERRNO_HOOK_ISLAND_ENTER;
 
     // relative jump to "pc + 4" in island-enter
-    sh_a64_restore_rx((uint32_t *)self->island_enter.addr);
-    sh_a64_relative_jump((uint32_t *)(self->island_enter.addr + 4), target_addr + self->backup_len,
-                         self->island_enter.addr + 4);
-    sh_util_clear_cache(self->island_enter.addr, self->island_enter.size);
+    uint32_t island[2];
+    sh_a64_restore_rx(island);
+    sh_a64_relative_jump(&island[1], target_addr + self->backup_len, self->island_enter.addr + 4);
+    sh_util_write_jit(self->island_enter.addr, island, sizeof(island));
 
     resume_addr = self->island_enter.addr;
   }
@@ -241,12 +243,13 @@ static int sh_inst_reloc_with_island(sh_inst_t *self, uintptr_t target_addr, sh_
   if (0 == new_island_exit.addr) return SHADOWHOOK_ERRNO_HOOK_ISLAND_EXIT;
 
   // absolute jump to new_addr in island-exit
+  uint32_t island[5];
   if (!addr_info->is_proc_start || is_to_interceptor) {
-    sh_a64_absolute_jump_with_br_rx((uint32_t *)new_island_exit.addr, new_addr);
+    sh_a64_absolute_jump_with_br_rx(island, new_addr);
   } else {
-    sh_a64_absolute_jump_with_br_ip((uint32_t *)new_island_exit.addr, new_addr);
+    sh_a64_absolute_jump_with_br_ip(island, new_addr);
   }
-  sh_util_clear_cache(new_island_exit.addr, new_island_exit.size);
+  sh_util_write_jit(new_island_exit.addr, island, new_island_exit.size);
 
   // relative jump to the island-exit by overwriting the head of original function
   sh_a64_relative_jump(new_exit, new_island_exit.addr, pc);
@@ -390,8 +393,7 @@ static int sh_inst_reloc_without_island(sh_inst_t *self, uintptr_t target_addr, 
   // A thread inside an old exit has no matching enter instruction, so a rehook parks nobody.
   if (!is_rehook) sh_fixup_stop();
   int r = sh_util_write_inst(target_addr, new_exit, self->backup_len);
-  if (!is_rehook)
-    sh_fixup_resume(self->fixup_from, self->fixup_to, 0 == r ? self->fixup_cnt : 0);
+  if (!is_rehook) sh_fixup_resume(self->fixup_from, self->fixup_to, 0 == r ? self->fixup_cnt : 0);
   if (0 != r) return r;
   memcpy(self->exit, new_exit, self->backup_len);
 
@@ -418,6 +420,15 @@ static int sh_inst_hook_without_island(sh_inst_t *self, uintptr_t target_addr, s
 int sh_inst_hook(sh_inst_t *self, uintptr_t target_addr, sh_addr_info_t *addr_info, uintptr_t new_addr,
                  bool is_to_interceptor, sh_inst_set_orig_addr_t set_orig_addr, void *set_orig_addr_arg,
                  sh_recorder_trace_t *trace) {
+#ifdef __APPLE__
+  // sh_util_write_jit() calls it to restore write protection, when this thread cannot run trampolines.
+  uintptr_t jit_start;
+  size_t jit_len;
+  if (0 == sh_linker_get_code_bounds((uintptr_t)pthread_jit_write_protect_np, &jit_start, &jit_len) &&
+      jit_start < target_addr + 24 && target_addr < jit_start + jit_len)
+    return SHADOWHOOK_ERRNO_NOT_SUPPORT;
+#endif
+
   self->enter = sh_enter_alloc();
   if (0 == self->enter) return SHADOWHOOK_ERRNO_HOOK_ENTER;
 

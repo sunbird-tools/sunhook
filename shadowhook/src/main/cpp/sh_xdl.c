@@ -142,6 +142,10 @@ void *sh_xdl_open(const char *lib_name) {
   return sh_xdl_open_from_linker(lib_name);
 }
 
+void sh_xdl_close(void *handle) {
+  xdl_close(handle);
+}
+
 void *sh_xdl_sym(void *handle, const char *sym_name, size_t *symbol_size) {
   void *addr = NULL;
   if (SHADOWHOOK_ERRNO_OK != shadowhook_get_init_errno()) {

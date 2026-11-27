@@ -98,10 +98,18 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
+#ifdef __APPLE__
+#include <pthread.h>
+#define BYTESIG_TID_INIT(tid) pid_t tid = (pid_t)pthread_mach_thread_np(pthread_self())
+#else
+#define BYTESIG_TID_INIT(tid) \
+  pid_t tid = gettid();       \
+  if (0 == tid) tid = (pid_t)syscall(SYS_gettid)
+#endif
+
 #define BYTESIG_TRY(...)                                                                                   \
   do {                                                                                                     \
-    pid_t _bytesig_tid_ = gettid();                                                                        \
-    if (0 == _bytesig_tid_) _bytesig_tid_ = (pid_t)syscall(SYS_gettid);                                    \
+    BYTESIG_TID_INIT(_bytesig_tid_);                                                                       \
     sigjmp_buf _bytesig_jbuf_;                                                                             \
     int _bytesig_sigs_[] = {__VA_ARGS__};                                                                  \
     bytesig_protect(_bytesig_tid_, &_bytesig_jbuf_, _bytesig_sigs_, sizeof(_bytesig_sigs_) / sizeof(int)); \
@@ -127,9 +135,9 @@
 
 #define FUNC_CHOOSER(_f1, _f2, _f3, ...)     _f3
 #define FUNC_RECOMPOSER(argsWithParentheses) FUNC_CHOOSER argsWithParentheses
-#define CHOOSE_FROM_ARG_COUNT(...) FUNC_RECOMPOSER((__VA_ARGS__, BYTESIG_CATCH_2, BYTESIG_CATCH_1, ))
-#define NO_ARG_EXPANDER()          , , BYTESIG_CATCH_0
-#define MACRO_CHOOSER(...)         CHOOSE_FROM_ARG_COUNT(NO_ARG_EXPANDER __VA_ARGS__())
+#define CHOOSE_FROM_ARG_COUNT(...)           FUNC_RECOMPOSER((__VA_ARGS__, BYTESIG_CATCH_2, BYTESIG_CATCH_1, ))
+#define NO_ARG_EXPANDER()                    , , BYTESIG_CATCH_0
+#define MACRO_CHOOSER(...)                   CHOOSE_FROM_ARG_COUNT(NO_ARG_EXPANDER __VA_ARGS__())
 
 #define BYTESIG_CATCH(...) MACRO_CHOOSER(__VA_ARGS__)(__VA_ARGS__)
 

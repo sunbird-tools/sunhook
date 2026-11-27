@@ -24,14 +24,11 @@
 #include "sh_task.h"
 
 #include <inttypes.h>
-#include <malloc.h>
-#include <poll.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/eventfd.h>
 #include <unistd.h>
 
 #include "queue.h"
@@ -45,7 +42,9 @@
 #include "sh_switch.h"
 #include "sh_util.h"
 #include "shadowhook.h"
+#ifndef __APPLE__
 #include "xdl.h"
+#endif
 
 typedef enum { SH_TASK_HOOK, SH_TASK_INTERCEPT } sh_task_type_t;
 
@@ -255,6 +254,7 @@ static void sh_task_delayed_destroy(sh_task_t *self) {
   sh_ref_delayed_destroy(&self->ref, &mgr);
 }
 
+#ifndef __APPLE__
 static void sh_task_do_callback(sh_task_t *self, int error_number) {
   if (SH_TASK_HOOK == self->type && NULL != self->typed.hook.hooked)
     self->typed.hook.hooked(error_number, self->lib_name, self->sym_name, (void *)self->target_addr,
@@ -398,8 +398,12 @@ static void sh_task_dl_fini_post(struct dl_phdr_info *info, size_t size, void *d
     sh_ref_decrement_count(&task->ref);
   }
 }
+#endif
 
 int sh_task_init(void) {
+#ifdef __APPLE__
+  return 0;
+#else
 #ifdef SH_CONFIG_COMPATIBLE_WITH_ARM_ANDROID_4_X
   if (__predict_false(sh_util_get_api_level() < __ANDROID_API_L__)) {
     SH_LOG_INFO("task: start linker dlopen monitor ...");
@@ -412,6 +416,7 @@ int sh_task_init(void) {
   if (0 != sh_linker_register_dl_init_callback(sh_task_dl_init_pre, NULL, NULL)) return -1;
   if (0 != sh_linker_register_dl_fini_callback(NULL, sh_task_dl_fini_post, NULL)) return -1;
   return 0;
+#endif
 }
 
 int sh_task_do(sh_task_t *self) {

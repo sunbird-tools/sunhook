@@ -43,7 +43,6 @@
 #include "sh_task.h"
 #include "sh_util.h"
 #include "sh_xdl.h"
-#include "xdl.h"
 
 #define GOTO_ERR(errnum) \
   do {                   \
@@ -535,7 +534,7 @@ void *shadowhook_dlopen(const char *lib_name) {
 }
 
 void shadowhook_dlclose(void *handle) {
-  xdl_close(handle);
+  sh_xdl_close(handle);
 }
 
 void *shadowhook_dlsym(void *handle, const char *sym_name) {

@@ -29,7 +29,9 @@
 
 #include "sh_util.h"
 #include "sh_xdl.h"
-#include "xdl.h"
+#ifdef __APPLE__
+#include <sys/mman.h>
+#else
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wreserved-id-macro"
 #pragma clang diagnostic ignored "-Wvariadic-macros"
@@ -40,6 +42,7 @@
 #pragma clang diagnostic ignored "-Wpadded"
 #include "linux_syscall_support.h"
 #pragma clang diagnostic pop
+#endif
 
 #define SH_SAFE_IDX_PTHREAD_GETSPECIFIC  0
 #define SH_SAFE_IDX_PTHREAD_SETSPECIFIC  1
@@ -58,7 +61,7 @@ static int sh_safe_api_level;
 #endif
 
 static int sh_safe_init_func(void *handle, const char *symbol, size_t idx) {
-  sh_safe_addrs[idx].target_addr = (uintptr_t)(xdl_sym(handle, symbol, NULL));
+  sh_safe_addrs[idx].target_addr = (uintptr_t)(sh_xdl_sym_dynsym(handle, symbol, NULL));
   if (__predict_false(0 == sh_safe_addrs[idx].target_addr)) return -1;
   sh_safe_addrs[idx].orig_addr = 0;
   return 0;
@@ -87,7 +90,7 @@ int sh_safe_init(void) {
   r = 0;
 
 end:
-  xdl_close(handle);
+  sh_xdl_close(handle);
   return r;
 }
 
@@ -156,14 +159,24 @@ __attribute__((always_inline)) void sh_safe_abort(void) {
 
 __attribute__((always_inline)) void *sh_safe_mmap(void *addr, size_t length, int prot, int flags, int fd,
                                                   off_t offset) {
+#ifdef __APPLE__
+  return mmap(addr, length, prot, flags, fd, offset);
+#else
   return sys_mmap(addr, length, prot, flags, fd, offset);
+#endif
 }
 
 __attribute__((always_inline)) int sh_safe_munmap(void *addr, size_t size) {
+#ifdef __APPLE__
+  return munmap(addr, size);
+#else
   return sys_munmap(addr, size);
+#endif
 }
 
+#ifndef __APPLE__
 __attribute__((always_inline)) int sh_safe_prctl(int option, unsigned long arg2, unsigned long arg3,
                                                  unsigned long arg4, unsigned long arg5) {
   return sys_prctl(option, arg2, arg3, arg4, arg5);
 }
+#endif

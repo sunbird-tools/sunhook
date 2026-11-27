@@ -76,8 +76,10 @@ int sh_util_get_api_level(void);
 #define SH_UTIL_API_AT_LEAST(level) true
 #endif
 
-#ifdef __ANDROID__
+#if defined(__ANDROID__)
 #define SH_UTIL_LIBC_NAME "libc.so"
+#elif defined(__APPLE__)
+#define SH_UTIL_LIBC_NAME "/usr/lib/libSystem.B.dylib"
 #else
 #define SH_UTIL_LIBC_NAME "libc.so.6"
 #endif
@@ -110,6 +112,8 @@ bool sh_util_match_pathname(const char *a, const char *b);
 int sh_util_mprotect(uintptr_t addr, size_t len, int prot);
 void sh_util_clear_cache(uintptr_t addr, size_t len);
 int sh_util_write_inst(uintptr_t target_addr, void *inst, size_t inst_len);
+// Copies into trampoline memory, or zero-fills when src is NULL.
+void sh_util_write_jit(uintptr_t dst, const void *src, size_t len);
 bool sh_util_is_thumb32(uintptr_t target_addr);
 uint32_t sh_util_arm_expand_imm(uint32_t opcode);
 

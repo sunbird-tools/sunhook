@@ -173,9 +173,10 @@ static int sh_a64_build_island_rewrite(uintptr_t addr, sh_a64_rewrite_info_t *ri
   if (0 == rinfo->island_rewrite->addr) return SHADOWHOOK_ERRNO_HOOK_ISLAND_REWRITE;
 
   // relative jump to "pc + 4" in island-enter
-  sh_a64_restore_ip((uint32_t *)rinfo->island_rewrite->addr);
-  sh_a64_relative_jump((uint32_t *)(rinfo->island_rewrite->addr + 4), addr, rinfo->island_rewrite->addr + 4);
-  sh_util_clear_cache(rinfo->island_rewrite->addr, rinfo->island_rewrite->size);
+  uint32_t island[2];
+  sh_a64_restore_ip(island);
+  sh_a64_relative_jump(&island[1], addr, rinfo->island_rewrite->addr + 4);
+  sh_util_write_jit(rinfo->island_rewrite->addr, island, sizeof(island));
   SH_LOG_INFO("a64 rewrite: branch island %" PRIxPTR " -> %" PRIxPTR, rinfo->island_rewrite->addr + 4, addr);
   return 0;
 }
@@ -236,8 +237,7 @@ static size_t sh_a64_rewrite_adr(uint32_t *buf, uint32_t inst, uintptr_t pc, sh_
   else  // ADRP
     addr = (pc & 0xFFFFFFFFFFFFF000) + SH_UTIL_SIGN_EXTEND_64((immhi << 14u) | (immlo << 12u), 33u);
   if (sh_a64_is_addr_need_fix(addr, rinfo)) return 0;  // rewrite failed
-  if (xd == 17 && type == ADRP)
-    rinfo->resume_ip_x16 = true;
+  if (xd == 17 && type == ADRP) rinfo->resume_ip_x16 = true;
 
   buf[0] = 0x58000040u | xd;  // LDR Xd, #8
   buf[1] = 0x14000003;        // B #12
@@ -257,8 +257,7 @@ static size_t sh_a64_rewrite_ldr(uint32_t *buf, uint32_t inst, uintptr_t pc, sh_
     if (type != PRFM_LIT) return 0;  // rewrite failed
     addr = sh_a64_fix_addr(addr, rinfo);
   }
-  if (rt == 17 && type == LDR_LIT_64)
-    rinfo->resume_ip_x16 = true;
+  if (rt == 17 && type == LDR_LIT_64) rinfo->resume_ip_x16 = true;
 
   if (type == LDR_LIT_32 || type == LDR_LIT_64 || type == LDRSW_LIT) {
     buf[0] = 0x58000060u | rt;  // LDR Xt, #12

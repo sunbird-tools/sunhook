@@ -52,8 +52,10 @@
 #define BYTESIG_LOG(fmt, ...)
 #endif
 
-#ifdef __ANDROID__
+#if defined(__ANDROID__)
 #define BYTESIG_LIBC "libc.so"
+#elif defined(__APPLE__)
+#define BYTESIG_LIBC "/usr/lib/libSystem.B.dylib"
 #else
 #define BYTESIG_LIBC "libc.so.6"
 #endif
@@ -123,7 +125,12 @@ typedef struct {
 #pragma clang diagnostic pop
 
 // array index is signal number, corresponds to signals 1 to 31, except 9 and 19
-static bytesig_signal_t *bytesig_signal_array[__SIGRTMIN];
+#ifdef __APPLE__
+#define BYTESIG_SIG_MAX NSIG
+#else
+#define BYTESIG_SIG_MAX __SIGRTMIN
+#endif
+static bytesig_signal_t *bytesig_signal_array[BYTESIG_SIG_MAX];
 
 #ifdef __ANDROID__
 static void bytesig_sigorset64(sigset64_t *dest, sigset64_t *left, sigset64_t *right) {
@@ -144,8 +151,7 @@ __attribute__((noinline)) static void bytesig_handler_internal(int signum, sigin
   bytesig_signal_t *sig = bytesig_signal_array[signum];
 
   // check protect info & do siglongjmp
-  pid_t tid = gettid();
-  if (__predict_false(0 == tid)) tid = (pid_t)syscall(SYS_gettid);
+  BYTESIG_TID_INIT(tid);
   for (size_t i = 0; i < BYTESIG_PROTECTED_THREADS_MAX; i++) {
     if (__predict_false(tid == __atomic_load_n(&sig->tids[i], __ATOMIC_ACQUIRE))) {
       BYTESIG_LOG("siglongjmp signal %d (code %d) at %zu", signum, siginfo->si_code, i);
@@ -212,7 +218,7 @@ static void bytesig_handler(int signum, siginfo_t *siginfo, void *context) {
 }
 
 int bytesig_init(int signum) {
-  if (__predict_false(signum <= 0 || signum >= __SIGRTMIN || signum == SIGKILL || signum == SIGSTOP))
+  if (__predict_false(signum <= 0 || signum >= BYTESIG_SIG_MAX || signum == SIGKILL || signum == SIGSTOP))
     return -1;
   if (__predict_false(BYTESIG_STATUS_UNAVAILABLE == bytesig_status)) return -1;
   if (__predict_false(NULL != bytesig_signal_array[signum])) return -1;
@@ -225,7 +231,11 @@ int bytesig_init(int signum) {
   bytesig_signal_t *sig = calloc(1, sizeof(bytesig_signal_t));
   if (__predict_false(NULL == sig)) goto end;
 
+#ifdef __APPLE__
+#define SA_EXPOSE_TAGBITS 0
+#else
 #define SA_EXPOSE_TAGBITS 0x00000800
+#endif
 
 #define REGISTER_SIGNAL_HANDLER(suffix)                                          \
   do {                                                                           \
@@ -260,7 +270,7 @@ end:
 void bytesig_protect(pid_t tid, sigjmp_buf *jbuf, const int signums[], size_t signums_cnt) {
   for (size_t i = 0; i < signums_cnt; i++) {
     int signum = signums[i];
-    if (__predict_false(signum <= 0 || signum >= __SIGRTMIN || signum == SIGKILL || signum == SIGSTOP))
+    if (__predict_false(signum <= 0 || signum >= BYTESIG_SIG_MAX || signum == SIGKILL || signum == SIGSTOP))
       continue;
 
     bytesig_signal_t *sig = bytesig_signal_array[signum];
@@ -297,7 +307,7 @@ void bytesig_protect(pid_t tid, sigjmp_buf *jbuf, const int signums[], size_t si
 void bytesig_unprotect(pid_t tid, const int signums[], size_t signums_cnt) {
   for (size_t i = 0; i < signums_cnt; i++) {
     int signum = signums[i];
-    if (__predict_false(signum <= 0 || signum >= __SIGRTMIN || signum == SIGKILL || signum == SIGSTOP))
+    if (__predict_false(signum <= 0 || signum >= BYTESIG_SIG_MAX || signum == SIGKILL || signum == SIGSTOP))
       continue;
 
     bytesig_signal_t *sig = bytesig_signal_array[signum];

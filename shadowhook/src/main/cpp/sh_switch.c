@@ -36,7 +36,7 @@
 #include <sys/syscall.h>
 #ifndef ARCH_SHSTK_STATUS
 #define ARCH_SHSTK_STATUS 0x5005
-#define ARCH_SHSTK_SHSTK (1ULL << 0)
+#define ARCH_SHSTK_SHSTK  (1ULL << 0)
 #endif
 #endif
 
@@ -269,11 +269,13 @@ static int sh_switch_inst_unhook(sh_switch_t *self) {
   return 0;
 }
 
+#ifndef __APPLE__
 static void sh_switch_inst_free_after_dlclose(sh_switch_t *self) {
   sh_inst_free_after_dlclose(&self->inst, self->target_addr);
 
   if (self->addr_info.is_proc_start) sh_safe_set_orig_addr(self->target_addr, 0);
 }
+#endif
 
 static int sh_switch_proxy_add(sh_switch_t *self, uintptr_t new_addr, uintptr_t *orig_addr, bool add_to_hub) {
   int r;
@@ -495,8 +497,9 @@ static int sh_switch_create_glue_launcher(sh_switch_t *self) {
   self->glue_launcher_addr = sh_trampo_alloc(&sh_switch_interceptor_trampo_mgr);
   if (0 == self->glue_launcher_addr) return SHADOWHOOK_ERRNO_OOM;
 
-  sh_inst_build_glue_launcher((void *)(self->glue_launcher_addr), self);
-  sh_util_clear_cache(self->glue_launcher_addr, SH_SWITCH_GLUE_LAUNCHER_SZ);
+  uint8_t buf[SH_SWITCH_GLUE_LAUNCHER_SZ] __attribute__((aligned(8)));
+  sh_inst_build_glue_launcher(buf, self);
+  sh_util_write_jit(self->glue_launcher_addr, buf, sizeof(buf));
 
   SH_LOG_INFO("switch: create glue_launcher, target_addr %" PRIxPTR, self->target_addr);
   return 0;
@@ -959,6 +962,7 @@ end:
   return r;
 }
 
+#ifndef __APPLE__
 void sh_switch_free_after_dlclose(struct dl_phdr_info *info) {
   sh_switch_queue_t abandoned = TAILQ_HEAD_INITIALIZER(abandoned);
   sh_switch_t *sw, *tmp;
@@ -990,3 +994,4 @@ void sh_switch_free_after_dlclose(struct dl_phdr_info *info) {
 
   sh_island_cleanup_after_dlclose((uintptr_t)info->dlpi_addr);
 }
+#endif

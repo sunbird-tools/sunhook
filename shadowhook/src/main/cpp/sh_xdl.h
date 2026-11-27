@@ -29,6 +29,7 @@
 #define SH_XDL_CRASH ((void *)UINTPTR_MAX)
 
 void *sh_xdl_open(const char *lib_name);
+void sh_xdl_close(void *handle);
 void *sh_xdl_sym(void *handle, const char *sym_name, size_t *symbol_size);
 void *sh_xdl_sym_dynsym(void *handle, const char *sym_name, size_t *symbol_size);
 void *sh_xdl_sym_symtab(void *handle, const char *sym_name, size_t *symbol_size);

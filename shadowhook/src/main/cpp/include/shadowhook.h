@@ -31,7 +31,12 @@
 #ifndef BYTEDANCE_SHADOWHOOK_H
 #define BYTEDANCE_SHADOWHOOK_H
 
+#ifdef __APPLE__
+#include <stddef.h>
+struct dl_phdr_info;
+#else
 #include <link.h>
+#endif
 #include <stdbool.h>
 #include <stdint.h>
 

@@ -29,7 +29,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#ifndef __APPLE__
 #include <sys/prctl.h>
+#endif
 
 #include "queue.h"
 #include "sh_log.h"
@@ -41,10 +43,12 @@
 #include "tree.h"
 
 #define SH_HUB_TRAMPO_ANON_PAGE_NAME "shadowhook-hub-trampo"
-#define SH_HUB_STACK_ANON_PAGE_NAME  "shadowhook-hub-stack"
-#define SH_HUB_STACK_SIZE            4096  // 4K is enough
-#define SH_HUB_STACK_FRAME_MAX       127   // keep sizeof(sh_hub_stack_t) < 4K
-#define SH_HUB_THREAD_MAX            768
+#ifndef __APPLE__
+#define SH_HUB_STACK_ANON_PAGE_NAME "shadowhook-hub-stack"
+#endif
+#define SH_HUB_STACK_SIZE      4096  // 4K is enough
+#define SH_HUB_STACK_FRAME_MAX 127   // keep sizeof(sh_hub_stack_t) < 4K
+#define SH_HUB_THREAD_MAX      768
 
 #define SH_HUB_FRAME_FLAG_NONE            ((uintptr_t)0)
 #define SH_HUB_FRAME_FLAG_ALLOW_REENTRANT ((uintptr_t)(1 << 0))
@@ -103,7 +107,8 @@ static size_t sh_hub_trampo_code_size;
 static size_t sh_hub_trampo_data_size;
 
 // hub trampoline template
-extern void *sh_hub_trampo_template_data __attribute__((visibility("hidden")));
+extern void *sh_hub_trampo_template_data __asm__("sh_hub_trampo_template_data")
+    __attribute__((visibility("hidden")));
 __attribute__((naked)) static void sh_hub_trampo_template(void) {
 #if defined(__arm__)
   __asm__(
@@ -147,9 +152,9 @@ __attribute__((naked)) static void sh_hub_trampo_template(void) {
       "stp   q6, q7, [sp, #0xb0]      \n"
 
       // Call sh_hub_push_stack()
-      "ldr   x0, .L_hub_ptr           \n"
+      "ldr   x0, 2f                   \n"
       "mov   x1, lr                   \n"
-      "ldr   x16, .L_push_stack       \n"
+      "ldr   x16, 1f                  \n"
       "blr   x16                      \n"
 
       // Save the hook function's address to IP register
@@ -169,12 +174,16 @@ __attribute__((naked)) static void sh_hub_trampo_template(void) {
       // Call hook function
       "br    x16                      \n"
 
-      "sh_hub_trampo_template_data:"
-      ".global sh_hub_trampo_template_data;"
-      ".L_push_stack:"
-      ".quad 0;"
-      ".L_hub_ptr:"
-      ".quad 0;");
+#ifdef __APPLE__
+      // ld64 splits sections at symbols, and arm64 Mach-O has no relocation for LDR literal.
+      ".private_extern sh_hub_trampo_template_data\n"
+      ".alt_entry sh_hub_trampo_template_data\n"
+#else
+      ".global sh_hub_trampo_template_data\n"
+#endif
+      "sh_hub_trampo_template_data:\n"
+      "1: .quad 0\n"
+      "2: .quad 0\n");
 #elif defined(__x86_64__)
   __asm__(
       // Save parameter registers, RAX (varargs vector count), R10. 0xc8 realigns rsp for the call.
@@ -333,8 +342,10 @@ __attribute__((always_inline)) static sh_hub_stack_t *sh_hub_stack_create(void) 
   int flags = MAP_PRIVATE | MAP_ANONYMOUS;
   void *buf = sh_safe_mmap(NULL, SH_HUB_STACK_SIZE, prot, flags, -1, 0);
   if (__predict_false(MAP_FAILED == buf)) return NULL;  // failed
+#ifndef __APPLE__
   sh_safe_prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, (unsigned long)buf, SH_HUB_STACK_SIZE,
                 (unsigned long)SH_HUB_STACK_ANON_PAGE_NAME);
+#endif
   sh_hub_stack_t *stack = (sh_hub_stack_t *)buf;
   stack->frames_cnt = 0;
   return stack;  // OK
@@ -514,7 +525,7 @@ int sh_hub_create(sh_hub_t **self) {
 
   // fill in code
   SH_SIG_TRY(SIGSEGV, SIGBUS) {
-    memcpy((void *)obj->trampo, (void *)sh_hub_trampo_code_start, sh_hub_trampo_code_size);
+    sh_util_write_jit(obj->trampo, (void *)sh_hub_trampo_code_start, sh_hub_trampo_code_size);
   }
   SH_SIG_CATCH() {
     sh_trampo_free(&sh_hub_trampo_mgr, obj->trampo);
@@ -525,12 +536,8 @@ int sh_hub_create(sh_hub_t **self) {
   SH_SIG_EXIT
 
   // fill in data
-  void **data = (void **)(obj->trampo + sh_hub_trampo_code_size);
-  *data++ = (void *)sh_hub_push_stack;
-  *data = (void *)obj;
-
-  // clear CPU cache
-  sh_util_clear_cache(obj->trampo, sh_hub_trampo_code_size + sh_hub_trampo_data_size);
+  void *data[2] = {(void *)sh_hub_push_stack, (void *)obj};
+  sh_util_write_jit(obj->trampo + sh_hub_trampo_code_size, data, sizeof(data));
 
   SH_LOG_INFO("hub: create trampo at %" PRIxPTR ", size %zu + %zu = %zu", obj->trampo,
               sh_hub_trampo_code_size, sh_hub_trampo_data_size,

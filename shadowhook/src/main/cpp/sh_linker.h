@@ -22,7 +22,9 @@
 // Created by Kelun Cai (caikelun@bytedance.com) on 2021-04-11.
 
 #pragma once
+#ifndef __APPLE__
 #include <link.h>
+#endif
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -48,12 +50,14 @@ int sh_linker_unregister_dl_fini_callback(shadowhook_dl_info_t pre, shadowhook_d
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wpadded"
 typedef struct {
-  void *dli_fbase;              // ELF load_bias
-  char *dli_fname;              // pathname or basename of ELF
-  void *dli_saddr;              // symbol address
-  size_t dli_ssize;             // symbol size
+  void *dli_fbase;   // ELF load_bias
+  char *dli_fname;   // pathname or basename of ELF
+  void *dli_saddr;   // symbol address
+  size_t dli_ssize;  // symbol size
+#ifndef __APPLE__
   const ElfW(Phdr) *dlpi_phdr;  // ELF program headers
   size_t dlpi_phnum;            // number of items in dlpi_phdr
+#endif
   bool is_sym_addr;
   bool is_proc_start;
 } sh_addr_info_t;
@@ -63,15 +67,19 @@ int sh_linker_get_addr_info_by_addr(sh_addr_info_t *addr_info, void *addr, bool 
 // The covering symbol, or else at most 64 KB from addr up to the next symbol or the end of its segment.
 int sh_linker_get_code_bounds(uintptr_t addr, uintptr_t *start, size_t *len);
 int sh_linker_get_addr_info_by_name(sh_addr_info_t *addr_info, const char *lib_name, const char *sym_name);
+#ifndef __APPLE__
 int sh_linker_get_addr_info_by_handle(sh_addr_info_t *addr_info, void **cached_handle,
                                       struct dl_phdr_info *info, const char *sym_name);
 void sh_linker_close_handle(void *cached_handle);
+#endif
 
 void sh_linker_free_addr_info(sh_addr_info_t *addr_info);
 int sh_linker_copy_addr_info(sh_addr_info_t *addr_info, sh_addr_info_t *copy);
 
+#ifndef __APPLE__
 bool sh_linker_is_addr_in_elf_pt_load(uintptr_t addr, void *dli_fbase, const ElfW(Phdr) *dlpi_phdr,
                                       size_t dlpi_phnum);
 
 void shadowhook_proxy_android_linker_soinfo_call_constructors(void *soinfo);
 void shadowhook_proxy_android_linker_soinfo_call_destructors(void *soinfo);
+#endif

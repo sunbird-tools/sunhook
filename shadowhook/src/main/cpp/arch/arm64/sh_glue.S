@@ -23,6 +23,20 @@
 
 #include "sh_config.h"
 
+#ifdef __APPLE__
+// Mach-O symbols carry a leading underscore, and ";" starts a comment in Apple's arm64 syntax.
+#define ENTRY(f) \
+  .globl _##f %% \
+  .private_extern _##f %% \
+  .balign 4 %% \
+  .text %% \
+_##f: %% \
+  .cfi_startproc
+
+#define END(f) .cfi_endproc
+#define SYM(f) _##f
+#define LOCAL(l) L##l
+#else
 #define ENTRY(f)      \
   .globl f;           \
   .balign 4;          \
@@ -34,6 +48,9 @@ f:                    \
 #define END(f)   \
   .cfi_endproc;  \
   .size f, .- f
+#define SYM(f) f
+#define LOCAL(l) .L##l
+#endif
 
 #ifdef SH_CONFIG_CORRUPT_IP_REGS
 #define IP_0 x16
@@ -109,9 +126,9 @@ ENTRY(shadowhook_interceptor_glue)
 
   // Do we need to save fpsimd registers?
   ldr  IP_1, [IP_1]             // get sh_switch_t.flags_union
-  tbnz IP_1, #0, .L_save_vregs  // test read_vregs bit and branch
+  tbnz IP_1, #0, LOCAL(_save_vregs)  // test read_vregs bit and branch
 
-.L_save_vregs_continue:
+LOCAL(_save_vregs_continue):
   // restore IP_0 and IP_1 !!!
   ldr  IP_0, [sp, #0x330]
   str  IP_1, [sp, #0x330]  // save sh_switch_t.flags_union !!!
@@ -143,13 +160,13 @@ ENTRY(shadowhook_interceptor_glue)
   ldr x0, [sp, #-0x8]  // get context-pointer from stack
   add x1, sp, #0x10    // CPU context
   add x2, sp, #0x338   // next_hop
-  bl  shadowhook_interceptor_caller
+  bl  SYM(shadowhook_interceptor_caller)
 
   // Do we need to restore fpsimd registers?
   ldr  IP_0, [sp, #0x330]          // get sh_switch_t.flags_union !!!
-  tbnz IP_0, #1, .L_restore_vregs  // test write_vregs bit and branch
+  tbnz IP_0, #1, LOCAL(_restore_vregs)  // test write_vregs bit and branch
 
-.L_restore_vregs_continue:
+LOCAL(_restore_vregs_continue):
   // restore pstate
   ldr IP_0, [sp, #0x118]
   msr nzcv, IP_0
@@ -188,7 +205,7 @@ ENTRY(shadowhook_interceptor_glue)
   // jump to next_hop
   br x16
 
-.L_save_vregs:
+LOCAL(_save_vregs):
   // save q0-q31
   stp  q0,  q1,  [sp, #0x120]
   stp  q2,  q3,  [sp, #0x140]
@@ -213,9 +230,9 @@ ENTRY(shadowhook_interceptor_glue)
   mrs  IP_0, fpcr
   str  IP_0, [sp, #0x328]
 
-  b    .L_save_vregs_continue
+  b    LOCAL(_save_vregs_continue)
 
-.L_restore_vregs:
+LOCAL(_restore_vregs):
   // restore q0-q31
   ldp  q0,  q1,  [sp, #0x120]
   ldp  q2,  q3,  [sp, #0x140]
@@ -240,7 +257,7 @@ ENTRY(shadowhook_interceptor_glue)
   ldr  IP_0, [sp, #0x328]
   msr  fpcr, IP_0
 
-  b    .L_restore_vregs_continue
+  b    LOCAL(_restore_vregs_continue)
 END(shadowhook_interceptor_glue)
 
 // [[ next ]]

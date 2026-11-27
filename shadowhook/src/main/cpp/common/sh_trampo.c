@@ -28,7 +28,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#ifndef __APPLE__
 #include <sys/prctl.h>
+#endif
 #include <sys/time.h>
 
 #include "queue.h"
@@ -37,6 +39,12 @@
 #define SH_TRAMPO_HINTS_MAX 32
 
 #define SH_TRAMPO_ALIGN 4
+
+#ifdef __APPLE__
+#define SH_TRAMPO_MAP_FLAGS (MAP_PRIVATE | MAP_ANONYMOUS | MAP_JIT)
+#else
+#define SH_TRAMPO_MAP_FLAGS (MAP_PRIVATE | MAP_ANONYMOUS)
+#endif
 
 void sh_trampo_init_mgr(sh_trampo_mgr_t *mgr, const char *anon_page_name, size_t trampo_size,
                         time_t delay_sec) {
@@ -91,7 +99,7 @@ uintptr_t sh_trampo_alloc_between(sh_trampo_mgr_t *mgr, uintptr_t range_low, uin
       // OK
       page->flags[i] |= 0x80000000;
       trampo = trampo_cur;
-      memset((void *)trampo, 0, mgr->trampo_size);
+      sh_util_write_jit(trampo, NULL, mgr->trampo_size);
       goto end;
     }
   }
@@ -103,7 +111,7 @@ uintptr_t sh_trampo_alloc_between(sh_trampo_mgr_t *mgr, uintptr_t range_low, uin
         between ? (void *)(sh_util_page_end(range_low + (range_high - range_low) / SH_TRAMPO_HINTS_MAX * i))
                 : NULL;
     new_ptr = (uintptr_t)(mmap(hint, trampo_page_size, PROT_READ | PROT_WRITE | PROT_EXEC,
-                               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+                               SH_TRAMPO_MAP_FLAGS, -1, 0));
     if ((uintptr_t)MAP_FAILED == new_ptr) goto err;
 
     // check page's range
@@ -119,7 +127,6 @@ uintptr_t sh_trampo_alloc_between(sh_trampo_mgr_t *mgr, uintptr_t range_low, uin
 
   // create a new trampo-page info
   if (NULL == (page = calloc(1, sizeof(sh_trampo_page_t) + trampo_count * sizeof(uint32_t)))) goto err;
-  memset((void *)new_ptr, 0, trampo_page_size);
   page->ptr = new_ptr;
   new_ptr = (uintptr_t)MAP_FAILED;
   SLIST_INSERT_HEAD(&mgr->pages, page, link);
@@ -139,8 +146,12 @@ uintptr_t sh_trampo_alloc_between(sh_trampo_mgr_t *mgr, uintptr_t range_low, uin
 
 end:
   pthread_mutex_unlock(&mgr->pages_lock);
+#ifndef __APPLE__
   if ((uintptr_t)MAP_FAILED != new_ptr_prctl)
     prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, new_ptr_prctl, trampo_page_size, mgr->anon_page_name);
+#else
+  (void)new_ptr_prctl;
+#endif
   return trampo;
 
 err:

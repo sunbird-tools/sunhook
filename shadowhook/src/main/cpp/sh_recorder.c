@@ -40,7 +40,11 @@
 #include "sh_sig.h"
 #include "sh_util.h"
 #include "shadowhook.h"
+#ifdef __APPLE__
+#include <dlfcn.h>
+#else
 #include "xdl.h"
+#endif
 
 #define SH_RECORDER_LIB_NAME_MAX 512
 #define SH_RECORDER_SYM_NAME_MAX 1024
@@ -224,6 +228,17 @@ static const char *sh_recorder_get_base_name(const char *lib_name) {
     return lib_name;
 }
 
+#ifdef __APPLE__
+static void sh_recorder_get_base_name_by_addr(uintptr_t addr, char *base_name, size_t base_name_sz) {
+  Dl_info info;
+  const char *str = "unknown";
+  if (0 != dladdr((void *)addr, &info) && NULL != info.dli_fname && '\0' != info.dli_fname[0]) {
+    str = sh_recorder_get_base_name(info.dli_fname);
+    if ('\0' == str[0]) str = "unknown";
+  }
+  strlcpy(base_name, str, base_name_sz);
+}
+#else
 static void sh_recorder_get_base_name_by_addr(uintptr_t addr, char *base_name, size_t base_name_sz) {
 #define dlcache_timeout 60
   static time_t dlcache_ts = 0;
@@ -270,6 +285,7 @@ static void sh_recorder_get_base_name_by_addr(uintptr_t addr, char *base_name, s
   }
   strlcpy(base_name, str, base_name_sz);
 }
+#endif
 
 int sh_recorder_add_op(int error_number, uint8_t op, uintptr_t sym_addr, const char *lib_name,
                        const char *sym_name, uintptr_t new_addr, uint32_t flags, uintptr_t stub,

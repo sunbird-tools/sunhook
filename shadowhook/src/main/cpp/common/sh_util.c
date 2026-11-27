@@ -31,18 +31,28 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/auxv.h>
 #include <sys/mman.h>
-#include <sys/sysinfo.h>
 #include <time.h>
 #include <unistd.h>
 
+#ifdef __APPLE__
+#include <mach/mach.h>
+#include <mach/mach_vm.h>
+
+#include "sh_fixup.h"
+#else
+#include <sys/auxv.h>
+#include <sys/sysinfo.h>
+
 #include "linux_syscall_support_android_ext.h"
+#endif
 #include "sh_log.h"
 #include "sh_sig.h"
 #include "shadowhook.h"
 
+#ifndef __APPLE__
 extern __attribute((weak)) unsigned long int getauxval(unsigned long int);
+#endif
 
 static time_t sh_util_system_uptime;
 static size_t sh_util_page_size;
@@ -179,11 +189,21 @@ size_t sh_util_get_arm_cpu_features(void) {
 }
 #endif
 
-void sh_util_init(void) {
-  // init system uptime
+static time_t sh_util_get_system_uptime(void) {
+#ifdef __APPLE__
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return ts.tv_sec;
+#else
   struct sysinfo info;
   sys_sysinfo(&info);
-  sh_util_system_uptime = info.uptime;
+  return info.uptime;
+#endif
+}
+
+void sh_util_init(void) {
+  // init system uptime
+  sh_util_system_uptime = sh_util_get_system_uptime();
 
   // init pagesize
   sh_util_page_size = (size_t)getpagesize();
@@ -235,6 +255,86 @@ uint32_t sh_util_arm_expand_imm(uint32_t opcode) {
   return amt == 0 ? imm : sh_util_ror(imm, 32, amt);
 }
 
+void sh_util_write_jit(uintptr_t dst, const void *src, size_t len) {
+#ifdef __APPLE__
+  // Hooked memcpy or memset would run from MAP_JIT memory, which this thread cannot execute while writing.
+  pthread_jit_write_protect_np(0);
+  for (size_t i = 0; i < len; i++)
+    __atomic_store_n((uint8_t *)dst + i, NULL == src ? 0 : ((const uint8_t *)src)[i], __ATOMIC_RELAXED);
+  pthread_jit_write_protect_np(1);
+#else
+  if (NULL == src)
+    memset((void *)dst, 0, len);
+  else
+    memcpy((void *)dst, src, len);
+#endif
+  sh_util_clear_cache(dst, len);
+}
+
+#ifdef __APPLE__
+// _kernelrpc_mach_vm_protect_trap, since the libsystem_kernel stubs may sit on the page being patched.
+static kern_return_t sh_util_vm_protect(uintptr_t addr, size_t len, vm_prot_t prot) {
+  register uintptr_t x0 __asm__("x0") = mach_task_self_;
+  register uintptr_t x1 __asm__("x1") = addr;
+  register uintptr_t x2 __asm__("x2") = len;
+  register uintptr_t x3 __asm__("x3") = 0;
+  register uintptr_t x4 __asm__("x4") = (uintptr_t)prot;
+  register intptr_t x16 __asm__("x16") = -14;
+  __asm__ volatile("svc #0x80"
+                   : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3), "+r"(x4), "+r"(x16)
+                   :
+                   : "memory", "cc");
+  return (kern_return_t)x0;
+}
+
+// The pages lose execute permission until the second trap returns, so nothing in between may call out.
+__attribute__((noinline)) static int sh_util_patch_text(uintptr_t start, size_t len, uintptr_t target_addr,
+                                                        const uint32_t *inst, size_t cnt, vm_prot_t prot) {
+  if (KERN_SUCCESS != sh_util_vm_protect(start, len, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY))
+    return SHADOWHOOK_ERRNO_MPROT;
+  for (size_t i = 0; i < cnt; i++)
+    __atomic_store_n((uint32_t *)target_addr + i, inst[i], __ATOMIC_RELAXED);
+  __atomic_thread_fence(__ATOMIC_SEQ_CST);
+  if (KERN_SUCCESS != sh_util_vm_protect(start, len, prot)) return SHADOWHOOK_ERRNO_MPROT;
+  return 0;
+}
+
+int sh_util_write_inst(uintptr_t target_addr, void *inst, size_t inst_len) {
+  if (0 != target_addr % 4 || 0 != inst_len % 4) return SHADOWHOOK_ERRNO_WRITE_CRASH;
+
+  // The dyld shared cache maps as a read-only submap, so the real protection sits one level down.
+  mach_vm_address_t region;
+  mach_vm_size_t region_len;
+  vm_region_submap_short_info_data_64_t info;
+  for (natural_t depth = 0;; depth++) {
+    region = target_addr;
+    region_len = 0;
+    mach_msg_type_number_t count = VM_REGION_SUBMAP_SHORT_INFO_COUNT_64;
+    if (KERN_SUCCESS != mach_vm_region_recurse(mach_task_self(), &region, &region_len, &depth,
+                                               (vm_region_recurse_info_t)&info, &count))
+      return SHADOWHOOK_ERRNO_MPROT;
+    if (!info.is_submap) break;
+  }
+  if (target_addr < region || region + region_len < target_addr + inst_len) return SHADOWHOOK_ERRNO_MPROT;
+
+  if (info.protection & VM_PROT_WRITE) {
+    sh_util_write_jit(target_addr, inst, inst_len);
+    return 0;
+  }
+  if (!(info.protection & VM_PROT_EXECUTE)) return SHADOWHOOK_ERRNO_MPROT;
+
+  uintptr_t start = sh_util_page_start(target_addr);
+  uintptr_t end = sh_util_page_end(target_addr + inst_len);
+  uintptr_t self = (uintptr_t)sh_util_patch_text;
+  if (start <= self + 0x400 && self < end) return SHADOWHOOK_ERRNO_MPROT;
+
+  sh_fixup_stop();
+  int r = sh_util_patch_text(start, end - start, target_addr, inst, inst_len / 4, info.protection);
+  if (0 == r) sh_util_clear_cache(target_addr, inst_len);
+  sh_fixup_resume(NULL, NULL, 0);
+  return r;
+}
+#else
 int sh_util_write_inst(uintptr_t target_addr, void *inst, size_t inst_len) {
   if (0 != sh_util_mprotect(target_addr, inst_len, PROT_READ | PROT_WRITE | PROT_EXEC))
     return SHADOWHOOK_ERRNO_MPROT;
@@ -301,6 +401,7 @@ int sh_util_write_inst(uintptr_t target_addr, void *inst, size_t inst_len) {
 
   return 0;  // OK
 }
+#endif
 
 int sh_util_write(int fd, const char *buf, size_t buf_len) {
   if (fd < 0) return -1;
@@ -707,10 +808,9 @@ size_t sh_util_snprintf(char *buffer, size_t buffer_size, const char *format, ..
 }
 
 time_t sh_util_get_process_uptime(void) {
-  struct sysinfo info;
-  sys_sysinfo(&info);
-  if (__predict_false(info.uptime < sh_util_system_uptime)) return 0;
-  return info.uptime - sh_util_system_uptime;
+  time_t uptime = sh_util_get_system_uptime();
+  if (__predict_false(uptime < sh_util_system_uptime)) return 0;
+  return uptime - sh_util_system_uptime;
 }
 
 time_t sh_util_get_stable_timestamp(void) {
