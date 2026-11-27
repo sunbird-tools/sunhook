@@ -33,11 +33,16 @@ fn main() {
    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
    let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap();
    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
-   let android = match (target_os.as_str(), target_env.as_str()) {
-      ("android", _) => true,
-      ("linux", "gnu") => false,
-      _ => panic!("sunhook only supports Android and glibc Linux, not {target_os} {target_env}"),
-   };
+   let android = target_os == "android";
+   let darwin = target_os == "macos";
+   assert!(
+      android || darwin || (target_os == "linux" && target_env == "gnu"),
+      "sunhook only supports Android, glibc Linux and macOS, not {target_os} {target_env}"
+   );
+   assert!(
+      !darwin || target_arch == "aarch64",
+      "sunhook only supports aarch64 on macOS, not {target_arch}"
+   );
 
    let arch = match target_arch.as_str() {
       "aarch64" => "arm64",
@@ -61,23 +66,47 @@ fn main() {
       build.include(src.join(include));
    }
 
-   if !android {
+   if !android && !darwin {
       // gcc turns the 16-byte instruction write into a libatomic call that may take a lock.
       build.compiler("clang").define("_GNU_SOURCE", None);
    }
 
    // sh_jni.c defines JNI_OnLoad, which would collide with the embedding
-   // library's own.
-   let top_level = sources(&src, &["c"])
-      .into_iter()
-      .filter(|path| path.file_name().is_some_and(|name| name != "sh_jni.c"));
+   // library's own. darwin/ replaces the ELF linker and signal-based thread
+   // parking.
+   let skipped: &[&str] = if darwin {
+      &[
+         "sh_jni.c",
+         "sh_linker.c",
+         "sh_elf.c",
+         "sh_xdl.c",
+         "sh_fixup.c",
+      ]
+   } else {
+      &["sh_jni.c"]
+   };
+   let kept = |path: &PathBuf| {
+      path
+         .file_name()
+         .and_then(|name| name.to_str())
+         .is_some_and(|name| !skipped.contains(&name))
+   };
 
    build
-      .files(top_level)
+      .files(sources(&src, &["c"]).into_iter().filter(kept))
       .files(sources(&src.join("arch").join(arch), &["c", "S"]))
-      .files(sources(&src.join("common"), &["c"]))
-      .files(sources(&src.join("third_party/xdl"), &["c"]))
-      .compile("shadowhook");
+      .files(
+         sources(&src.join("common"), &["c"])
+            .into_iter()
+            .filter(kept),
+      );
+
+   if darwin {
+      build.files(sources(&src.join("darwin"), &["c"]));
+   } else {
+      build.files(sources(&src.join("third_party/xdl"), &["c"]));
+   }
+   build.compile("shadowhook");
 
    println!("cargo:include={}", src.join("include").display());
 

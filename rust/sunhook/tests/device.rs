@@ -42,11 +42,7 @@ use sunhook::{
       CpuContext,
       Fpsimd,
    },
-   linker::{
-      DlCallback,
-      Library,
-      Phase,
-   },
+   linker::Library,
    record::{
       self,
       Items,
@@ -422,8 +418,14 @@ fn pending_sym_name_hooks_on_dlopen() {
 }
 
 #[test]
+#[cfg(not(target_vendor = "apple"))]
 #[cfg_attr(not(target_os = "android"), ignore = "glibc builds have no load monitor")]
 fn dl_callbacks_see_load_and_unload() {
+   use sunhook::linker::{
+      DlCallback,
+      Phase,
+   };
+
    init();
    assert!(
       Library::open(c"libsync.so").is_none(),
@@ -461,7 +463,23 @@ fn dl_callbacks_see_load_and_unload() {
 // middle of the function.
 const INSTR_LEN: usize = if cfg!(target_arch = "x86") { 5 } else { 4 };
 
-#[cfg(target_arch = "aarch64")]
+// Private extern stays in the Mach-O symbol table and out of the export trie.
+#[cfg(all(target_arch = "aarch64", target_vendor = "apple"))]
+std::arch::global_asm!(
+   ".text",
+   ".globl _sunhook_instr_target",
+   ".private_extern _sunhook_instr_target",
+   ".p2align 2",
+   "_sunhook_instr_target:",
+   "add x0, x0, #1",
+   "add x0, x0, #2",
+   "add x0, x0, #4",
+   "add x0, x0, #8",
+   "add x0, x0, #16",
+   "ret",
+);
+
+#[cfg(all(target_arch = "aarch64", not(target_vendor = "apple")))]
 std::arch::global_asm!(
    ".text",
    ".globl sunhook_instr_target",
