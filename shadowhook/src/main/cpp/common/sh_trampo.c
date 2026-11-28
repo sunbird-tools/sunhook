@@ -30,6 +30,11 @@
 #include <sys/mman.h>
 #if !defined(__APPLE__) && !defined(_WIN32)
 #include <sys/prctl.h>
+// glibc before 2.35, as on Ubuntu 22.04, lacks these Linux 5.17 names.
+#ifndef PR_SET_VMA
+#define PR_SET_VMA           0x53564d41
+#define PR_SET_VMA_ANON_NAME 0
+#endif
 #endif
 #include <sys/time.h>
 
