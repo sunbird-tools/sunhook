@@ -31,13 +31,22 @@
 static int sh_errno_global = SHADOWHOOK_ERRNO_INIT_ERRNO;
 static pthread_key_t sh_errno_tls_key;
 
-__attribute__((constructor(101))) static void sh_errno_ctor(void) {
+static pthread_once_t sh_errno_once = PTHREAD_ONCE_INIT;
+
+static void sh_errno_create_key(void) {
   if (__predict_true(0 == pthread_key_create(&sh_errno_tls_key, NULL))) {
     sh_errno_global = SHADOWHOOK_ERRNO_OK;
   }
 }
 
+__attribute__((constructor(101))) static void sh_errno_ctor(void) {
+  pthread_once(&sh_errno_once, sh_errno_create_key);
+}
+
+// ld64 ignores constructor priorities, so on macOS the embedding library's own constructor can
+// call shadowhook_init() before sh_errno_ctor() runs.
 bool sh_errno_is_invalid(void) {
+  pthread_once(&sh_errno_once, sh_errno_create_key);
   return __predict_false(sh_errno_global == SHADOWHOOK_ERRNO_INIT_ERRNO);
 }
 
