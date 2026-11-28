@@ -238,6 +238,7 @@ static size_t sh_a64_rewrite_adr(uint32_t *buf, uint32_t inst, uintptr_t pc, sh_
     addr = (pc & 0xFFFFFFFFFFFFF000) + SH_UTIL_SIGN_EXTEND_64((immhi << 14u) | (immlo << 12u), 33u);
   if (sh_a64_is_addr_need_fix(addr, rinfo)) return 0;  // rewrite failed
   if (xd == 17 && type == ADRP) rinfo->resume_ip_x16 = true;
+  if (xd == 16) rinfo->x16_written = true;
 
   buf[0] = 0x58000040u | xd;  // LDR Xd, #8
   buf[1] = 0x14000003;        // B #12
@@ -258,6 +259,7 @@ static size_t sh_a64_rewrite_ldr(uint32_t *buf, uint32_t inst, uintptr_t pc, sh_
     addr = sh_a64_fix_addr(addr, rinfo);
   }
   if (rt == 17 && type == LDR_LIT_64) rinfo->resume_ip_x16 = true;
+  if (rt == 16 && (type == LDR_LIT_32 || type == LDR_LIT_64 || type == LDRSW_LIT)) rinfo->x16_written = true;
 
   if (type == LDR_LIT_32 || type == LDR_LIT_64 || type == LDRSW_LIT) {
     buf[0] = 0x58000060u | rt;  // LDR Xt, #12
@@ -346,26 +348,78 @@ static size_t sh_a64_rewrite_tb(uint32_t *buf, uint32_t inst, uintptr_t pc, sh_a
   return idx * 4;  // 24(28);
 }
 
+#define SH_A64_WRITES_X16 1u
+#define SH_A64_WRITES_X17 2u
+
+static uint32_t sh_a64_ip_bit(uint32_t reg) {
+  if (reg == 16) return SH_A64_WRITES_X16;
+  if (reg == 17) return SH_A64_WRITES_X17;
+  return 0;
+}
+
+// Which of x16 and x17 a copied instruction writes, the base of a pre- or post-indexed access
+// included.
+static uint32_t sh_a64_ip_writes(uint32_t inst) {
+  uint32_t rd = SH_UTIL_GET_BITS_32(inst, 4, 0);
+  uint32_t rn = SH_UTIL_GET_BITS_32(inst, 9, 5);
+  uint32_t rt2 = SH_UTIL_GET_BITS_32(inst, 14, 10);
+  uint32_t rs = SH_UTIL_GET_BITS_32(inst, 20, 16);
+  uint32_t op0 = SH_UTIL_GET_BITS_32(inst, 28, 25);
+  bool load = 0 != (inst & 0x400000u);
+  bool vector = 0 != (inst & 0x4000000u);
+
+  if (op0 == 0x8 || op0 == 0x9 || op0 == 0x5 || op0 == 0xD) return sh_a64_ip_bit(rd);
+  if ((inst & 0xFFF00000u) == 0xD5300000u) return sh_a64_ip_bit(rd);
+  if ((op0 & 0x5u) != 0x4u) return 0;
+
+  if ((inst & 0x3A000000u) == 0x28000000u) {
+    uint32_t writes = (load && !vector) ? (sh_a64_ip_bit(rd) | sh_a64_ip_bit(rt2)) : 0;
+    if (0 != (inst & 0x800000u)) writes |= sh_a64_ip_bit(rn);
+    return writes;
+  }
+  if ((inst & 0x3F000000u) == 0x08000000u)
+    return sh_a64_ip_bit(rd) | sh_a64_ip_bit(rs) | (load ? sh_a64_ip_bit(rt2) : 0);
+
+  uint32_t writes = 0;
+  if ((inst & 0x3B200400u) == 0x38000400u) writes |= sh_a64_ip_bit(rn);
+  if (vector || ((inst & 0xC00000u) == 0 && (inst & 0x200C00u) != 0x200000u)) return writes;
+  return writes | sh_a64_ip_bit(rd);
+}
+
 size_t sh_a64_rewrite(uint32_t *buf, uint32_t inst, uintptr_t pc, sh_a64_rewrite_info_t *rinfo) {
   sh_a64_type_t type = sh_a64_get_type(inst);
   SH_LOG_INFO("a64 rewrite: type %d, inst %" PRIx32, type, inst);
 
+  // x17 carries the jump back and every relocated branch, so a moved opening that sets x17
+  // resumes through x16, and one that sets both cannot move.
+  if (rinfo->resume_ip_x16 &&
+      (type == B || type == B_COND || type == CBZ || type == CBNZ || type == TBZ || type == TBNZ))
+    return 0;
+  if (type == IGNORED) {
+    uint32_t writes = sh_a64_ip_writes(inst);
+    if (0 != (writes & SH_A64_WRITES_X16)) rinfo->x16_written = true;
+    if (0 != (writes & SH_A64_WRITES_X17)) rinfo->resume_ip_x16 = true;
+  }
+
+  size_t len;
   if (type == B || type == B_COND || type == BL)
-    return sh_a64_rewrite_b(buf, inst, pc, type, rinfo);
+    len = sh_a64_rewrite_b(buf, inst, pc, type, rinfo);
   else if (type == ADR || type == ADRP)
-    return sh_a64_rewrite_adr(buf, inst, pc, type, rinfo);
+    len = sh_a64_rewrite_adr(buf, inst, pc, type, rinfo);
   else if (type == LDR_LIT_32 || type == LDR_LIT_64 || type == LDRSW_LIT || type == PRFM_LIT ||
            type == LDR_SIMD_LIT_32 || type == LDR_SIMD_LIT_64 || type == LDR_SIMD_LIT_128)
-    return sh_a64_rewrite_ldr(buf, inst, pc, type, rinfo);
+    len = sh_a64_rewrite_ldr(buf, inst, pc, type, rinfo);
   else if (type == CBZ || type == CBNZ)
-    return sh_a64_rewrite_cb(buf, inst, pc, rinfo);
+    len = sh_a64_rewrite_cb(buf, inst, pc, rinfo);
   else if (type == TBZ || type == TBNZ)
-    return sh_a64_rewrite_tb(buf, inst, pc, rinfo);
+    len = sh_a64_rewrite_tb(buf, inst, pc, rinfo);
   else {
     // IGNORED
     buf[0] = inst;
-    return 4;
+    len = 4;
   }
+  if (rinfo->x16_written && rinfo->resume_ip_x16) return 0;
+  return len;
 }
 
 size_t sh_a64_nop(uint32_t *buf) {

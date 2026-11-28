@@ -129,6 +129,7 @@ static int sh_inst_rewrite(sh_inst_t *self, uintptr_t target_addr, sh_addr_info_
   rinfo.island_rewrite = (use_branch_island ? &self->island_rewrite : NULL);
   rinfo.addr_info = addr_info;
   rinfo.resume_ip_x16 = false;
+  rinfo.x16_written = false;
 
   if (!addr_info->is_proc_start) {
     rinfo.buf_offset += sh_a64_restore_ip(enter);

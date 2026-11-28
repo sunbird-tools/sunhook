@@ -40,8 +40,9 @@ typedef struct {
   sh_island_t *island_rewrite;  // .size = 8
   sh_addr_info_t *addr_info;
   bool resume_ip_x16;
+  bool x16_written;
   //unused
-  uint8_t unused_padding[7];
+  uint8_t unused_padding[6];
 } sh_a64_rewrite_info_t;
 
 size_t sh_a64_get_rewrite_inst_len(uint32_t inst, bool use_branch_island);
