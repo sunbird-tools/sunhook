@@ -37,8 +37,11 @@ fn main() {
    let darwin = target_os == "macos";
    let windows = target_os == "windows";
    assert!(
-      android || darwin || (matches!(target_os.as_str(), "linux" | "windows") && target_env == "gnu"),
-      "sunhook only supports Android, glibc Linux, mingw Windows and macOS, not {target_os} {target_env}"
+      android
+         || darwin
+         || (target_os == "linux" && target_env == "gnu")
+         || (windows && matches!(target_env.as_str(), "gnu" | "msvc")),
+      "sunhook only supports Android, glibc Linux, Windows and macOS, not {target_os} {target_env}"
    );
    assert!(
       !darwin || target_arch == "aarch64",
@@ -74,6 +77,12 @@ fn main() {
    if windows {
       // windows/include shadows the POSIX headers mingw lacks.
       build.include(src.join("windows/include"));
+      if target_env == "msvc" {
+         // cl.exe rejects the GNU inline asm and the .S glue.
+         build.compiler("clang-cl").include(src.join("windows/msvc"));
+         // clang-cl -Fo leaves the preprocessed .S as <name>.asm in the working directory.
+         env::set_current_dir(env::var_os("OUT_DIR").unwrap()).expect("entering OUT_DIR");
+      }
    } else if !android && !darwin {
       // gcc turns the 16-byte instruction write into a libatomic call that may take a lock.
       build.compiler("clang").define("_GNU_SOURCE", None);
