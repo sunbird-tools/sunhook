@@ -35,13 +35,18 @@ fn main() {
    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
    let android = target_os == "android";
    let darwin = target_os == "macos";
+   let windows = target_os == "windows";
    assert!(
-      android || darwin || (target_os == "linux" && target_env == "gnu"),
-      "sunhook only supports Android, glibc Linux and macOS, not {target_os} {target_env}"
+      android || darwin || (matches!(target_os.as_str(), "linux" | "windows") && target_env == "gnu"),
+      "sunhook only supports Android, glibc Linux, mingw Windows and macOS, not {target_os} {target_env}"
    );
    assert!(
       !darwin || target_arch == "aarch64",
       "sunhook only supports aarch64 on macOS, not {target_arch}"
+   );
+   assert!(
+      !windows || target_arch == "x86_64",
+      "sunhook only supports x86_64 on Windows, not {target_arch}"
    );
 
    let arch = match target_arch.as_str() {
@@ -66,7 +71,10 @@ fn main() {
       build.include(src.join(include));
    }
 
-   if !android && !darwin {
+   if windows {
+      // windows/include shadows the POSIX headers mingw lacks.
+      build.include(src.join("windows/include"));
+   } else if !android && !darwin {
       // gcc turns the 16-byte instruction write into a libatomic call that may take a lock.
       build.compiler("clang").define("_GNU_SOURCE", None);
    }
@@ -74,7 +82,16 @@ fn main() {
    // sh_jni.c defines JNI_OnLoad, which would collide with the embedding
    // library's own. darwin/ replaces the ELF linker and signal-based thread
    // parking.
-   let skipped: &[&str] = if darwin {
+   let skipped: &[&str] = if windows {
+      &[
+         "sh_jni.c",
+         "sh_linker.c",
+         "sh_elf.c",
+         "sh_xdl.c",
+         "sh_fixup.c",
+         "bytesig.c",
+      ]
+   } else if darwin {
       &[
          "sh_jni.c",
          "sh_linker.c",
@@ -103,6 +120,8 @@ fn main() {
 
    if darwin {
       build.files(sources(&src.join("darwin"), &["c"]));
+   } else if windows {
+      build.files(sources(&src.join("windows"), &["c"]));
    } else {
       build.files(sources(&src.join("third_party/xdl"), &["c"]));
    }

@@ -1,12 +1,13 @@
+#[cfg(unix)]
+use std::os::fd::{
+   AsRawFd,
+   BorrowedFd,
+};
 use std::{
    ffi::CStr,
    ops::{
       BitOr,
       BitOrAssign,
-   },
-   os::fd::{
-      AsRawFd,
-      BorrowedFd,
    },
 };
 
@@ -24,7 +25,6 @@ use sunhook_sys::{
    SHADOWHOOK_RECORD_ITEM_SYM_NAME,
    SHADOWHOOK_RECORD_ITEM_TIMESTAMP,
    SHADOWHOOK_RECORD_ITEM_TRACE,
-   shadowhook_dump_records,
    shadowhook_get_records,
 };
 
@@ -80,6 +80,7 @@ pub fn records(items: Items) -> Option<String> {
 
 /// Writes the operation log to `fd`. Async-signal-safe, so it works from a
 /// crash handler.
+#[cfg(unix)]
 pub fn dump(fd: BorrowedFd<'_>, items: Items) {
-   unsafe { shadowhook_dump_records(fd.as_raw_fd(), items.0) }
+   unsafe { sunhook_sys::shadowhook_dump_records(fd.as_raw_fd(), items.0) }
 }

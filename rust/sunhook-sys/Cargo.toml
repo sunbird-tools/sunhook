@@ -8,7 +8,7 @@ version.workspace      = true
 links        = "shadowhook"
 build        = "build.rs"
 
-[dependencies]
+[target.'cfg(not(any(target_vendor = "apple", windows)))'.dependencies]
 libc = { workspace = true }
 
 [build-dependencies]

@@ -1,4 +1,4 @@
-#[cfg(not(target_vendor = "apple"))] use std::ffi::c_int;
+#[cfg(not(any(target_vendor = "apple", windows)))] use std::ffi::c_int;
 use std::{
    ffi::{
       CStr,
@@ -9,12 +9,12 @@ use std::{
    ptr::NonNull,
 };
 
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(not(any(target_vendor = "apple", windows)))]
 use libc::{
    dl_phdr_info,
    size_t,
 };
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(not(any(target_vendor = "apple", windows)))]
 use sunhook_sys::{
    shadowhook_dl_info_t,
    shadowhook_register_dl_fini_callback,
@@ -30,7 +30,7 @@ use sunhook_sys::{
    shadowhook_dlsym_symtab,
 };
 
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(not(any(target_vendor = "apple", windows)))]
 use crate::error::Error;
 
 /// An ELF already loaded in the process, found past linker namespace
@@ -86,21 +86,21 @@ impl Drop for Library {
 
 /// Which side of the linker's call into `.init`/`.init_array` or
 /// `.fini`/`.fini_array`.
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(not(any(target_vendor = "apple", windows)))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Phase {
    Pre,
    Post,
 }
 
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(not(any(target_vendor = "apple", windows)))]
 type Callback = Box<dyn Fn(Phase, &dl_phdr_info) + Send + Sync>;
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(not(any(target_vendor = "apple", windows)))]
 type UnregisterFn =
    unsafe extern "C" fn(shadowhook_dl_info_t, shadowhook_dl_info_t, *mut c_void) -> c_int;
 
 /// A registered linker callback. Dropping it leaves the callback registered.
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(not(any(target_vendor = "apple", windows)))]
 #[must_use = "dropping a DlCallback leaves it registered, call unregister() to remove it"]
 pub struct DlCallback {
    data:       NonNull<Callback>,
@@ -108,12 +108,12 @@ pub struct DlCallback {
 }
 
 // SAFETY: the callback is Send + Sync, and only unregister(self) frees it.
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(not(any(target_vendor = "apple", windows)))]
 unsafe impl Send for DlCallback {}
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(not(any(target_vendor = "apple", windows)))]
 unsafe impl Sync for DlCallback {}
 
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(not(any(target_vendor = "apple", windows)))]
 impl DlCallback {
    /// Runs `callback` around every ELF's constructors. Requires Android 5.0 on
    /// arm32, and fails with [`Error::NotSupported`] on Linux.
@@ -173,18 +173,18 @@ impl DlCallback {
    }
 }
 
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(not(any(target_vendor = "apple", windows)))]
 unsafe fn dispatch(phase: Phase, info: *mut dl_phdr_info, data: *mut c_void) {
    let callback = unsafe { &*data.cast::<Callback>() };
    callback(phase, unsafe { &*info });
 }
 
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(not(any(target_vendor = "apple", windows)))]
 unsafe extern "C" fn pre(info: *mut dl_phdr_info, _size: size_t, data: *mut c_void) {
    unsafe { dispatch(Phase::Pre, info, data) }
 }
 
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(not(any(target_vendor = "apple", windows)))]
 unsafe extern "C" fn post(info: *mut dl_phdr_info, _size: size_t, data: *mut c_void) {
    unsafe { dispatch(Phase::Post, info, data) }
 }

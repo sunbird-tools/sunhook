@@ -12,7 +12,7 @@ use core::ffi::{
    c_void,
 };
 
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(not(any(target_vendor = "apple", windows)))]
 use libc::{
    dl_phdr_info,
    size_t,
@@ -191,7 +191,7 @@ pub type shadowhook_intercepted_t = Option<
    ),
 >;
 
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(not(any(target_vendor = "apple", windows)))]
 pub type shadowhook_dl_info_t =
    Option<unsafe extern "C" fn(info: *mut dl_phdr_info, size: size_t, data: *mut c_void)>;
 
@@ -329,25 +329,25 @@ unsafe extern "C" {
    pub fn shadowhook_dlsym_dynsym(handle: *mut c_void, sym_name: *const c_char) -> *mut c_void;
    pub fn shadowhook_dlsym_symtab(handle: *mut c_void, sym_name: *const c_char) -> *mut c_void;
 
-   #[cfg(not(target_vendor = "apple"))]
+   #[cfg(not(any(target_vendor = "apple", windows)))]
    pub fn shadowhook_register_dl_init_callback(
       pre: shadowhook_dl_info_t,
       post: shadowhook_dl_info_t,
       data: *mut c_void,
    ) -> c_int;
-   #[cfg(not(target_vendor = "apple"))]
+   #[cfg(not(any(target_vendor = "apple", windows)))]
    pub fn shadowhook_unregister_dl_init_callback(
       pre: shadowhook_dl_info_t,
       post: shadowhook_dl_info_t,
       data: *mut c_void,
    ) -> c_int;
-   #[cfg(not(target_vendor = "apple"))]
+   #[cfg(not(any(target_vendor = "apple", windows)))]
    pub fn shadowhook_register_dl_fini_callback(
       pre: shadowhook_dl_info_t,
       post: shadowhook_dl_info_t,
       data: *mut c_void,
    ) -> c_int;
-   #[cfg(not(target_vendor = "apple"))]
+   #[cfg(not(any(target_vendor = "apple", windows)))]
    pub fn shadowhook_unregister_dl_fini_callback(
       pre: shadowhook_dl_info_t,
       post: shadowhook_dl_info_t,
