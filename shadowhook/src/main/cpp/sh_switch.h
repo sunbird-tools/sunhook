@@ -45,6 +45,6 @@ int sh_switch_intercept(uintptr_t target_addr, sh_addr_info_t *addr_info, shadow
 int sh_switch_unintercept(uintptr_t target_addr, shadowhook_interceptor_t pre, void *data,
                           sh_recorder_trace_t *trace);
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(_WIN32)
 void sh_switch_free_after_dlclose(struct dl_phdr_info *info);
 #endif

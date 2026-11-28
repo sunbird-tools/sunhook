@@ -28,7 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(_WIN32)
 #include <sys/prctl.h>
 #endif
 #include <sys/time.h>
@@ -146,7 +146,7 @@ uintptr_t sh_trampo_alloc_between(sh_trampo_mgr_t *mgr, uintptr_t range_low, uin
 
 end:
   pthread_mutex_unlock(&mgr->pages_lock);
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(_WIN32)
   if ((uintptr_t)MAP_FAILED != new_ptr_prctl)
     prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, new_ptr_prctl, trampo_page_size, mgr->anon_page_name);
 #else

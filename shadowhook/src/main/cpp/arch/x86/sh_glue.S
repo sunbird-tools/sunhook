@@ -13,10 +13,18 @@
 
 #define CTX_SIZE 0x1a0
 
+#ifdef __ELF__
+#define SH_GLUE_CALLER shadowhook_interceptor_caller@PLT
+#else
+#define SH_GLUE_CALLER shadowhook_interceptor_caller
+#endif
+
   .text
   .globl shadowhook_interceptor_glue
   .balign 16
+#ifdef __ELF__
   .type shadowhook_interceptor_glue, @function
+#endif
 shadowhook_interceptor_glue:
   .cfi_startproc
   .cfi_undefined rip
@@ -74,7 +82,7 @@ shadowhook_interceptor_glue:
   mov     %rsp, %rsi
   lea     0x8(%rcx), %rdx
   cld
-  call    shadowhook_interceptor_caller@PLT
+  call    SH_GLUE_CALLER
 
   ldmxcsr 0x190(%rsp)
   movdqu  0x090(%rsp), %xmm0
@@ -117,7 +125,9 @@ shadowhook_interceptor_glue:
   popfq
   ret     $0x80
   .cfi_endproc
+#ifdef __ELF__
   .size shadowhook_interceptor_glue, . - shadowhook_interceptor_glue
+#endif
 
 #elif defined(__i386__)
 
@@ -138,7 +148,9 @@ shadowhook_interceptor_glue:
   .globl shadowhook_interceptor_glue
   .hidden shadowhook_interceptor_caller
   .balign 16
+#ifdef __ELF__
   .type shadowhook_interceptor_glue, @function
+#endif
 shadowhook_interceptor_glue:
   .cfi_startproc
   .cfi_undefined eip
@@ -211,8 +223,12 @@ shadowhook_interceptor_glue:
   popfl
   ret
   .cfi_endproc
+#ifdef __ELF__
   .size shadowhook_interceptor_glue, . - shadowhook_interceptor_glue
+#endif
 
 #endif
 
+#ifdef __ELF__
   .section .note.GNU-stack, "", @progbits
+#endif

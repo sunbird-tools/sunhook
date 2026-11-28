@@ -31,7 +31,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#if defined(__x86_64__) && !defined(__ANDROID__)
+#if defined(__x86_64__) && !defined(__ANDROID__) && !defined(_WIN32)
 #include <asm/prctl.h>
 #include <sys/syscall.h>
 #ifndef ARCH_SHSTK_STATUS
@@ -269,7 +269,7 @@ static int sh_switch_inst_unhook(sh_switch_t *self) {
   return 0;
 }
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(_WIN32)
 static void sh_switch_inst_free_after_dlclose(sh_switch_t *self) {
   sh_inst_free_after_dlclose(&self->inst, self->target_addr);
 
@@ -723,6 +723,10 @@ int sh_switch_hook(uintptr_t target_addr, sh_addr_info_t *addr_info, uintptr_t n
   char *hook_mode_str;
   int r;
 
+#ifdef _WIN32
+  // The hub trampoline calls out with the SysV convention.
+  if (SHADOWHOOK_HOOK_WITH_UNIQUE_MODE != hook_mode) return SHADOWHOOK_ERRNO_NOT_SUPPORT;
+#endif
   if (SHADOWHOOK_HOOK_WITH_UNIQUE_MODE == hook_mode) {
     do {
       r = sh_switch_hook_unique(target_addr, addr_info, new_addr, orig_addr, trace);
@@ -917,7 +921,11 @@ end:
 
 int sh_switch_intercept(uintptr_t target_addr, sh_addr_info_t *addr_info, shadowhook_interceptor_t pre,
                         void *data, size_t flags, sh_recorder_trace_t *trace) {
-#if defined(__x86_64__) && !defined(__ANDROID__)
+#ifdef _WIN32
+  // shadowhook_interceptor_glue calls out with the SysV convention.
+  (void)target_addr, (void)addr_info, (void)pre, (void)data, (void)flags, (void)trace;
+  return SHADOWHOOK_ERRNO_NOT_SUPPORT;
+#elif defined(__x86_64__) && !defined(__ANDROID__)
   // shadowhook_interceptor_glue leaves with a RET that no CALL pushed, which a CET shadow stack faults on.
   unsigned long long features = 0;
   if (0 == syscall(SYS_arch_prctl, ARCH_SHSTK_STATUS, &features) && (features & ARCH_SHSTK_SHSTK))
@@ -962,7 +970,7 @@ end:
   return r;
 }
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(_WIN32)
 void sh_switch_free_after_dlclose(struct dl_phdr_info *info) {
   sh_switch_queue_t abandoned = TAILQ_HEAD_INITIALIZER(abandoned);
   sh_switch_t *sw, *tmp;

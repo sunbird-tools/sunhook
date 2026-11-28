@@ -29,7 +29,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+#include "sh_sig_win.h"
+#else
 #include "bytesig.h"
+#endif
 #include "sh_enter.h"
 #include "sh_errno.h"
 #include "sh_hub.h"
@@ -80,8 +84,12 @@ int shadowhook_init(shadowhook_mode_t default_mode, bool debuggable) {
       __atomic_store_n(&shadowhook_default_mode, default_mode, __ATOMIC_RELEASE);
       sh_log_set_debuggable(debuggable);
       sh_util_init();
+#ifdef _WIN32
+      if (__predict_false(0 != sh_sig_init())) GOTO_END(SHADOWHOOK_ERRNO_INIT_SIGSEGV);
+#else
       if (__predict_false(0 != bytesig_init(SIGSEGV))) GOTO_END(SHADOWHOOK_ERRNO_INIT_SIGSEGV);
       if (__predict_false(0 != bytesig_init(SIGBUS))) GOTO_END(SHADOWHOOK_ERRNO_INIT_SIGBUS);
+#endif
       if (__predict_false(0 != sh_safe_init())) GOTO_END(SHADOWHOOK_ERRNO_INIT_SAFE);
       sh_island_init();
       sh_enter_init();

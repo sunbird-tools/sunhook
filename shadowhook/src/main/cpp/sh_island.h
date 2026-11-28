@@ -42,6 +42,6 @@ void sh_island_alloc(sh_island_t *self, size_t size, uintptr_t range_low, uintpt
 void sh_island_free(sh_island_t *self, uintptr_t load_bias);
 
 void sh_island_free_after_dlclose(sh_island_t *self);
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(_WIN32)
 void sh_island_cleanup_after_dlclose(uintptr_t load_bias);
 #endif

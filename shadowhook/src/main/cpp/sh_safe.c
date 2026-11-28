@@ -29,7 +29,8 @@
 
 #include "sh_util.h"
 #include "sh_xdl.h"
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(_WIN32)
+#include <stdlib.h>
 #include <sys/mman.h>
 #else
 #pragma clang diagnostic push
@@ -67,6 +68,23 @@ static int sh_safe_init_func(void *handle, const char *symbol, size_t idx) {
   return 0;
 }
 
+#ifdef _WIN32
+// The windows/ pthread shim is private to this library, so no other hook can reach it.
+int sh_safe_init(void) {
+  const uintptr_t addrs[SH_SAFE_IDX_SZ] = {
+      [SH_SAFE_IDX_PTHREAD_GETSPECIFIC] = (uintptr_t)pthread_getspecific,
+      [SH_SAFE_IDX_PTHREAD_SETSPECIFIC] = (uintptr_t)pthread_setspecific,
+      [SH_SAFE_IDX_PTHREAD_MUTEX_LOCK] = (uintptr_t)pthread_mutex_lock,
+      [SH_SAFE_IDX_PTHREAD_MUTEX_UNLOCK] = (uintptr_t)pthread_mutex_unlock,
+      [SH_SAFE_IDX_ABORT] = (uintptr_t)abort,
+  };
+  for (size_t i = 0; i < SH_SAFE_IDX_SZ; i++) {
+    sh_safe_addrs[i].target_addr = addrs[i];
+    sh_safe_addrs[i].orig_addr = 0;
+  }
+  return 0;
+}
+#else
 int sh_safe_init(void) {
 #ifdef __ANDROID__
   sh_safe_api_level = sh_util_get_api_level();
@@ -93,6 +111,7 @@ end:
   sh_xdl_close(handle);
   return r;
 }
+#endif
 
 void sh_safe_set_orig_addr(uintptr_t target_addr, uintptr_t orig_addr) {
   for (size_t i = 0; i < SH_SAFE_IDX_SZ; i++) {
@@ -159,7 +178,7 @@ __attribute__((always_inline)) void sh_safe_abort(void) {
 
 __attribute__((always_inline)) void *sh_safe_mmap(void *addr, size_t length, int prot, int flags, int fd,
                                                   off_t offset) {
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(_WIN32)
   return mmap(addr, length, prot, flags, fd, offset);
 #else
   return sys_mmap(addr, length, prot, flags, fd, offset);
@@ -167,14 +186,14 @@ __attribute__((always_inline)) void *sh_safe_mmap(void *addr, size_t length, int
 }
 
 __attribute__((always_inline)) int sh_safe_munmap(void *addr, size_t size) {
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(_WIN32)
   return munmap(addr, size);
 #else
   return sys_munmap(addr, size);
 #endif
 }
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(_WIN32)
 __attribute__((always_inline)) int sh_safe_prctl(int option, unsigned long arg2, unsigned long arg3,
                                                  unsigned long arg4, unsigned long arg5) {
   return sys_prctl(option, arg2, arg3, arg4, arg5);

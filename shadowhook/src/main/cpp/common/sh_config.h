@@ -54,7 +54,11 @@
 //
 // Do not disable it in production environment !!!
 //
+// bytesig catches faults through sigaction, which Windows lacks, so windows/sh_sig.c catches them
+// with a vectored exception handler.
+#ifndef _WIN32
 #define SH_CONFIG_SIG_PROT
+#endif
 
 // Try using branch islands, so that only a single relative jump instruction
 // is needed at the target address.

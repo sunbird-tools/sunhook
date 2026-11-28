@@ -29,7 +29,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(_WIN32)
 #include <sys/prctl.h>
 #endif
 
@@ -43,7 +43,7 @@
 #include "tree.h"
 
 #define SH_HUB_TRAMPO_ANON_PAGE_NAME "shadowhook-hub-trampo"
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(_WIN32)
 #define SH_HUB_STACK_ANON_PAGE_NAME "shadowhook-hub-stack"
 #endif
 #define SH_HUB_STACK_SIZE      4096  // 4K is enough
@@ -342,7 +342,7 @@ __attribute__((always_inline)) static sh_hub_stack_t *sh_hub_stack_create(void) 
   int flags = MAP_PRIVATE | MAP_ANONYMOUS;
   void *buf = sh_safe_mmap(NULL, SH_HUB_STACK_SIZE, prot, flags, -1, 0);
   if (__predict_false(MAP_FAILED == buf)) return NULL;  // failed
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(_WIN32)
   sh_safe_prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, (unsigned long)buf, SH_HUB_STACK_SIZE,
                 (unsigned long)SH_HUB_STACK_ANON_PAGE_NAME);
 #endif

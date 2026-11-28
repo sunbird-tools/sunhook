@@ -42,7 +42,7 @@
 #include "sh_switch.h"
 #include "sh_util.h"
 #include "shadowhook.h"
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(_WIN32)
 #include "xdl.h"
 #endif
 
@@ -254,7 +254,7 @@ static void sh_task_delayed_destroy(sh_task_t *self) {
   sh_ref_delayed_destroy(&self->ref, &mgr);
 }
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(_WIN32)
 static void sh_task_do_callback(sh_task_t *self, int error_number) {
   if (SH_TASK_HOOK == self->type && NULL != self->typed.hook.hooked)
     self->typed.hook.hooked(error_number, self->lib_name, self->sym_name, (void *)self->target_addr,
@@ -401,7 +401,7 @@ static void sh_task_dl_fini_post(struct dl_phdr_info *info, size_t size, void *d
 #endif
 
 int sh_task_init(void) {
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(_WIN32)
   return 0;
 #else
 #ifdef SH_CONFIG_COMPATIBLE_WITH_ARM_ANDROID_4_X

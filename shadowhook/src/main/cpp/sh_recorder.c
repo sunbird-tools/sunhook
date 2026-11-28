@@ -42,6 +42,8 @@
 #include "shadowhook.h"
 #ifdef __APPLE__
 #include <dlfcn.h>
+#elif defined(_WIN32)
+#include <windows.h>
 #else
 #include "xdl.h"
 #endif
@@ -237,6 +239,19 @@ static void sh_recorder_get_base_name_by_addr(uintptr_t addr, char *base_name, s
     if ('\0' == str[0]) str = "unknown";
   }
   strlcpy(base_name, str, base_name_sz);
+}
+#elif defined(_WIN32)
+static void sh_recorder_get_base_name_by_addr(uintptr_t addr, char *base_name, size_t base_name_sz) {
+  HMODULE module;
+  char path[MAX_PATH];
+  const char *str = "unknown";
+  if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                         (LPCSTR)addr, &module) &&
+      0 != GetModuleFileNameA(module, path, sizeof(path))) {
+    const char *slash = strrchr(path, '\\');
+    str = NULL == slash ? path : slash + 1;
+  }
+  snprintf(base_name, base_name_sz, "%s", str);
 }
 #else
 static void sh_recorder_get_base_name_by_addr(uintptr_t addr, char *base_name, size_t base_name_sz) {

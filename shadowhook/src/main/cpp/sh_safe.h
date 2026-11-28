@@ -38,6 +38,6 @@ void sh_safe_abort(void);
 
 void *sh_safe_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
 int sh_safe_munmap(void *addr, size_t size);
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(_WIN32)
 int sh_safe_prctl(int option, unsigned long arg2, unsigned long arg3, unsigned long arg4, unsigned long arg5);
 #endif

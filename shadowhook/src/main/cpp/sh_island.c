@@ -30,7 +30,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(_WIN32)
 #include "sh_elf.h"
 #endif
 #include "sh_log.h"
@@ -67,7 +67,7 @@ void sh_island_alloc(sh_island_t *self, size_t size, uintptr_t range_low, uintpt
   self->addr = sh_trampo_alloc_between(&sh_island_trampo_mgr, range_low, range_high);
   if (0 != self->addr) goto ok;
 
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(_WIN32)
   (void)pc, (void)addr_info, (void)trace;
 #else
   // try to allocate in ELF gaps
@@ -90,7 +90,7 @@ void sh_island_free(sh_island_t *self, uintptr_t load_bias) {
   if (SH_ISLAND_TYPE_ANON_PAGE == self->type) {
     sh_trampo_free(&sh_island_trampo_mgr, self->addr);
   }
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(_WIN32)
   else if (SH_ISLAND_TYPE_ELF_GAP == self->type) {
     sh_elf_free(self->addr, self->size, load_bias);
   }
@@ -106,7 +106,7 @@ void sh_island_free_after_dlclose(sh_island_t *self) {
   }
 }
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(_WIN32)
 void sh_island_cleanup_after_dlclose(uintptr_t load_bias) {
   sh_elf_cleanup_after_dlclose(load_bias);
 }

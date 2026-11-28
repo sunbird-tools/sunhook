@@ -31,7 +31,7 @@
 #ifndef BYTEDANCE_SHADOWHOOK_H
 #define BYTEDANCE_SHADOWHOOK_H
 
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(_WIN32)
 #include <stddef.h>
 struct dl_phdr_info;
 #else

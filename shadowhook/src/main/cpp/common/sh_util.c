@@ -40,6 +40,8 @@
 #include <mach/mach_vm.h>
 
 #include "sh_fixup.h"
+#elif defined(_WIN32)
+#include <windows.h>
 #else
 #include <sys/auxv.h>
 #include <sys/sysinfo.h>
@@ -50,7 +52,7 @@
 #include "sh_sig.h"
 #include "shadowhook.h"
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(_WIN32)
 extern __attribute((weak)) unsigned long int getauxval(unsigned long int);
 #endif
 
@@ -194,6 +196,8 @@ static time_t sh_util_get_system_uptime(void) {
   struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
   return ts.tv_sec;
+#elif defined(_WIN32)
+  return (time_t)(GetTickCount64() / 1000);
 #else
   struct sysinfo info;
   sys_sysinfo(&info);
@@ -206,7 +210,13 @@ void sh_util_init(void) {
   sh_util_system_uptime = sh_util_get_system_uptime();
 
   // init pagesize
+#ifdef _WIN32
+  SYSTEM_INFO info;
+  GetSystemInfo(&info);
+  sh_util_page_size = info.dwPageSize;
+#else
   sh_util_page_size = (size_t)getpagesize();
+#endif
 
   // init CPU feature
 #if defined(__arm__)
@@ -234,7 +244,11 @@ int sh_util_mprotect(uintptr_t addr, size_t len, int prot) {
 }
 
 void sh_util_clear_cache(uintptr_t addr, size_t len) {
+#ifdef _WIN32
+  FlushInstructionCache(GetCurrentProcess(), (void *)addr, len);
+#else
   __builtin___clear_cache((char *)addr, (char *)(addr + len));
+#endif
 }
 
 bool sh_util_is_thumb32(uintptr_t target_addr) {
@@ -450,7 +464,9 @@ struct tm *sh_util_localtime_r(const time_t *timep, long gmtoff, struct tm *resu
 
   if (NULL == result) return NULL;
 
+#ifndef _WIN32
   result->tm_gmtoff = gmtoff;
+#endif
 
   days = ((*timep) / SH_UTIL_SECS_PER_DAY);
   rem = ((*timep) % SH_UTIL_SECS_PER_DAY);

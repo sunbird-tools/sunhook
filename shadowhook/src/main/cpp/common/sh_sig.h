@@ -32,6 +32,26 @@
 #define SH_SIG_CATCH BYTESIG_CATCH
 #define SH_SIG_EXIT  BYTESIG_EXIT
 
+#elif defined(_WIN32)
+
+#include "sh_sig_win.h"
+#define SH_SIG_TRY(...)                     \
+  do {                                      \
+    sh_sig_frame_t _sh_sig_frame_;          \
+    sh_sig_enter(&_sh_sig_frame_);          \
+    RtlCaptureContext(&_sh_sig_frame_.ctx); \
+    if (0 == _sh_sig_frame_.faulted) {
+#define SH_SIG_CATCH(...)          \
+  sh_sig_leave(&_sh_sig_frame_);   \
+  }                                \
+  else {                           \
+    sh_sig_leave(&_sh_sig_frame_);
+#define SH_SIG_EXIT \
+  }                 \
+  }                 \
+  while (0)         \
+    ;
+
 #else
 
 #define SH_SIG_TRY(...) \
