@@ -37,6 +37,10 @@
 #endif
 #endif
 #include <sys/time.h>
+#if defined(__linux__) && !defined(__ANDROID__)
+#include <inttypes.h>
+#include <stdio.h>
+#endif
 
 #include "queue.h"
 #include "sh_util.h"
@@ -63,6 +67,44 @@ void sh_trampo_init_mgr(sh_trampo_mgr_t *mgr, const char *anon_page_name, size_t
 uintptr_t sh_trampo_alloc(sh_trampo_mgr_t *mgr) {
   return sh_trampo_alloc_between(mgr, 0, 0);
 }
+
+#if defined(__linux__) && !defined(__ANDROID__)
+// glibc leaves the holes between an executable's segments unmapped, and in an executable as large as
+// the range every hint below lands on its pages, so map a page into a free gap of the range instead.
+static uintptr_t sh_trampo_map_in_gap(uintptr_t range_low, uintptr_t range_high, size_t page_size) {
+  FILE *maps = fopen("/proc/self/maps", "re");
+  if (NULL == maps) return (uintptr_t)MAP_FAILED;
+
+  uintptr_t found = (uintptr_t)MAP_FAILED;
+  uintptr_t prev_end = 0;
+  char line[512];
+  bool line_start = true;
+  while (NULL != fgets(line, sizeof(line), maps)) {
+    bool at_start = line_start;
+    line_start = (NULL != strchr(line, '\n'));
+    if (!at_start) continue;  // the rest of a long path
+    uintptr_t start, end;
+    if (2 != sscanf(line, "%" SCNxPTR "-%" SCNxPTR, &start, &end)) continue;
+
+    uintptr_t from = sh_util_page_end(prev_end > range_low ? prev_end : range_low);
+    prev_end = end;
+    if (from > range_high) break;
+    if (from + page_size > start) continue;
+
+    void *ptr = mmap((void *)from, page_size, PROT_READ | PROT_WRITE | PROT_EXEC,
+                     SH_TRAMPO_MAP_FLAGS | MAP_FIXED_NOREPLACE, -1, 0);
+    if (MAP_FAILED == ptr) continue;
+    if ((uintptr_t)ptr != from) {
+      munmap(ptr, page_size);  // kernels before 4.17 take the flag as a hint
+      continue;
+    }
+    found = from;
+    break;
+  }
+  fclose(maps);
+  return found;
+}
+#endif
 
 // range: [range_low, range_high]
 uintptr_t sh_trampo_alloc_between(sh_trampo_mgr_t *mgr, uintptr_t range_low, uintptr_t range_high) {
@@ -110,8 +152,11 @@ uintptr_t sh_trampo_alloc_between(sh_trampo_mgr_t *mgr, uintptr_t range_low, uin
   }
 
   // alloc a new memory page
+#if defined(__linux__) && !defined(__ANDROID__)
+  if (between) new_ptr = sh_trampo_map_in_gap(range_low, range_high, trampo_page_size);
+#endif
   // The kernel ignores an occupied hint and maps anywhere, so try hints across the range.
-  for (uintptr_t i = 0; i < SH_TRAMPO_HINTS_MAX; i++) {
+  for (uintptr_t i = 0; (uintptr_t)MAP_FAILED == new_ptr && i < SH_TRAMPO_HINTS_MAX; i++) {
     void *hint =
         between ? (void *)(sh_util_page_end(range_low + (range_high - range_low) / SH_TRAMPO_HINTS_MAX * i))
                 : NULL;
